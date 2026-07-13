@@ -37,6 +37,68 @@ st.markdown("""
 
 st.title("🎥 מערכת מעקב סריקות מצלמות")
 
+
+# דיאלוג דיווח אירוע/תקלה בסריקה
+@st.dialog("⚠️ דיווח אירוע בסריקה")
+def report_scan_issue_dialog(camera_id, camera_name, hour_key, default_scanner):
+    st.markdown(f"**מצלמה:** {camera_name}")
+    st.caption(f"שעה מתוזמנת: {hour_key}")
+    st.markdown("---")
+
+    reporter = st.text_input(
+        "שם הנציג המדווח:",
+        value=default_scanner or "",
+        placeholder="שם מלא",
+        key=f"dlg_reporter_{camera_id}",
+    )
+    details = st.text_area(
+        "פירוט האירוע/התקלה:",
+        height=140,
+        placeholder="למשל: אדם חשוד באזור, תמונה מטושטשת, אזעקה, ...",
+        key=f"dlg_details_{camera_id}",
+    )
+    also_faulty = st.checkbox(
+        "🚫 סמן גם את המצלמה כתקולה (תוחרג מהסריקות)",
+        key=f"dlg_faulty_{camera_id}",
+    )
+
+    col1, col2 = st.columns(2)
+    save = col1.button(
+        "💾 שמור דיווח",
+        type="primary",
+        use_container_width=True,
+        key=f"dlg_save_{camera_id}",
+    )
+    cancel = col2.button(
+        "ביטול",
+        use_container_width=True,
+        key=f"dlg_cancel_{camera_id}",
+    )
+
+    if save:
+        if not reporter.strip():
+            st.error("יש למלא שם נציג")
+        elif not details.strip():
+            st.error("יש למלא פירוט האירוע")
+        else:
+            db.mark_scan(
+                camera_id,
+                hour_key,
+                reporter.strip(),
+                status='issue',
+                event_details=details.strip(),
+            )
+            if also_faulty:
+                db.add_fault(
+                    camera_id,
+                    datetime.now().isoformat(sep=' ', timespec='minutes'),
+                    f"{details.strip()} (דווח ע\"י: {reporter.strip()})",
+                )
+            st.rerun()
+
+    if cancel:
+        st.rerun()
+
 # ================= סרגל צד =================
 st.sidebar.title("ניווט")
 page = st.sidebar.radio("בחר עמוד:", [
@@ -204,41 +266,13 @@ elif page == "✅ סריקה שוטפת":
                 db.mark_scan(cam['id'], current_hour_key, scanner_name, status='ok')
                 st.rerun()
 
-            # פופאובר עם טופס דיווח תקלה
-            with cols[2].popover("⚠️ תקלה"):
-                st.markdown(f"**דיווח אירוע בסריקה של {cam['name']}**")
-                details = st.text_area(
-                    "פרט את מהות האירוע/התקלה:",
-                    key=f"details_{prefix}_{cam['id']}",
-                    height=100,
-                    placeholder="למשל: אדם חשוד באזור, תמונה מטושטשת, אזעקה, ...",
+            if cols[2].button("⚠️ תקלה", key=f"issue_{prefix}_{cam['id']}"):
+                report_scan_issue_dialog(
+                    cam['id'],
+                    cam['name'],
+                    current_hour_key,
+                    scanner_name,
                 )
-                also_faulty = st.checkbox(
-                    "🚫 סמן גם את המצלמה כתקולה (תוחרג מהסריקות)",
-                    key=f"faulty_{prefix}_{cam['id']}",
-                )
-                if st.button(
-                    "💾 שמור דיווח",
-                    key=f"save_issue_{prefix}_{cam['id']}",
-                    type="primary",
-                ):
-                    if not details.strip():
-                        st.error("יש למלא פירוט")
-                    else:
-                        db.mark_scan(
-                            cam['id'],
-                            current_hour_key,
-                            scanner_name,
-                            status='issue',
-                            event_details=details.strip(),
-                        )
-                        if also_faulty:
-                            db.add_fault(
-                                cam['id'],
-                                datetime.now().isoformat(sep=' ', timespec='minutes'),
-                                details.strip(),
-                            )
-                        st.rerun()
 
     col1, col2 = st.columns(2)
 
