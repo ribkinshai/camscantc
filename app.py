@@ -603,6 +603,20 @@ elif page == "⚙️ הגדרות":
             st.success("הגדרות משמרות נשמרו")
 
     st.markdown("---")
+    st.subheader("נתוני דמה לבדיקה")
+    st.caption("טוענים 200 מצלמות דמה (10 קבועות + 190 מתחלפות) כדי להתנסות במערכת")
+
+    if st.button("🎬 טען 200 מצלמות דמה", type="secondary"):
+        import seed_data
+        result = seed_data.seed_demo_data()
+        st.success(
+            f"נוספו **{result['central_added']}** קבועות "
+            f"ו-**{result['rotating_added']}** מתחלפות. "
+            f"סה\"כ במסד: **{result['total_now']}** מצלמות"
+        )
+        st.info("💡 מוזמן לגשת לעמוד 'סריקה שוטפת' ולראות איך זה עובד")
+
+    st.markdown("---")
     st.subheader("ייצוא נתונים")
     cams = db.get_all_cameras()
     if cams:
