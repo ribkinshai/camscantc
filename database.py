@@ -6,6 +6,12 @@ import sqlite3
 from datetime import datetime
 from contextlib import contextmanager
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+
+def _now_il():
+    """שעה נוכחית לפי שעון ישראל (Asia/Jerusalem)"""
+    return datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None)
 
 DB_PATH = Path("data/cameras.db")
 
@@ -205,7 +211,7 @@ def resolve_fault(fault_id: int):
     with get_conn() as conn:
         conn.execute(
             "UPDATE faults SET resolved = 1, resolved_at = ? WHERE id = ?",
-            (datetime.now().isoformat(sep=' ', timespec='seconds'), fault_id),
+            (_now_il().isoformat(sep=' ', timespec='seconds'), fault_id),
         )
         conn.commit()
 
@@ -247,7 +253,7 @@ def mark_scan(
     event_details: פירוט האירוע (רק כשstatus='issue')
     """
     with get_conn() as conn:
-        now = datetime.now().isoformat(sep=' ', timespec='seconds')
+        now = _now_il().isoformat(sep=' ', timespec='seconds')
         conn.execute("""
             INSERT INTO scans (camera_id, scheduled_hour, scanned_at, scanned_by, status, event_details)
             VALUES (?, ?, ?, ?, ?, ?)
