@@ -3,6 +3,12 @@
 Camera Scan Tracking System - Streamlit App
 """
 from datetime import datetime, timedelta, date, time
+from zoneinfo import ZoneInfo
+
+
+def now_il():
+    """שעה נוכחית לפי שעון ישראל (Asia/Jerusalem)"""
+    return datetime.now(ZoneInfo("Asia/Jerusalem")).replace(tzinfo=None)
 
 import pandas as pd
 import streamlit as st
@@ -111,7 +117,7 @@ page = st.sidebar.radio("בחר עמוד:", [
     "⚙️ הגדרות",
 ])
 
-now = datetime.now()
+now = now_il()
 current_hour = now.replace(minute=0, second=0, microsecond=0)
 current_hour_key = sch.hour_key(current_hour)
 
@@ -489,9 +495,9 @@ elif page == "⚠️ מצלמות תקולות":
                             fault_date, fault_time_val
                         ).isoformat(sep=' ', timespec='minutes')
                         db.add_fault(
-                            cam_options[selected_cam],
-                            fault_dt,
-                            description.strip(),
+                            cam_id,
+                            now_il().isoformat(sep=' ', timespec='minutes'),
+                            f"{details.strip()} (דווח ע\"י: {reporter.strip()})",
                         )
                         st.success(f"התקלה במצלמה '{selected_cam}' נרשמה")
                         st.rerun()
