@@ -109,6 +109,12 @@ st.markdown(f"""
         border: 1px solid {ACCENT} !important;
     }}
     .stButton button[kind="primary"]:hover {{ filter: brightness(1.1); }}
+    .stButton button[kind="tertiary"] {{
+        background-color: {RED} !important;
+        color: white !important;
+        border: 1px solid {RED} !important;
+    }}
+    .stButton button[kind="tertiary"]:hover {{ filter: brightness(1.1); }}
 
     .stAlert {{ direction: rtl; text-align: right; border-radius: 8px; }}
     .stProgress > div > div > div {{ background-color: {ACCENT} !important; }}
@@ -432,7 +438,7 @@ if page == "סריקה שוטפת":
             if cols[1].button("תקין", key=f"ok_{prefix}_{cam['id']}", type="primary", use_container_width=True):
                 db.mark_scan(cam['id'], current_hour_key, scanner_name, status='ok')
                 st.rerun()
-            if cols[2].button("תקלה", key=f"iss_{prefix}_{cam['id']}", use_container_width=True):
+            if cols[2].button("לא תקין", key=f"iss_{prefix}_{cam['id']}", type="tertiary", use_container_width=True):
                 st.session_state['issue_cam_id'] = cam['id']
                 st.session_state['issue_cam_name'] = cam['name']
                 st.rerun()
