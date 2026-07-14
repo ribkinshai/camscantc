@@ -413,7 +413,7 @@ if page == "סריקה שוטפת":
             <div class="value">{current_hour.strftime('%H:00')} · {sch.get_shift_name(now)}</div>
         </div>
         <div class="top-item">
-            <div class="label">התקדמות</div>
+            <div class="label">סטטוס סריקה</div>
             <div class="value">{completed} / {total}</div>
         </div>
         <div class="top-item">
