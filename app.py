@@ -878,6 +878,9 @@ elif page == "הגדרות":
 
     with st.expander("🔧 כלי עזר"):
         st.caption("שימושי בהתחלה או לצורך בדיקות")
+
+        # ---- טעינת מצלמות דמה ----
+        st.markdown("**מצלמות דמה**")
         current_count = len(db.get_all_cameras())
         if current_count >= 200:
             st.info(f"כבר יש {current_count} מצלמות במערכת")
@@ -890,6 +893,51 @@ elif page == "הגדרות":
                     st.rerun()
                 except ImportError:
                     st.error("קובץ seed_data.py לא נמצא")
+
+        st.markdown("---")
+
+        # ---- אזור סכנה - איפוס ----
+        st.markdown(f"""
+            <div style="background-color: {RED}22; border-right: 3px solid {RED};
+                        border-radius: 8px; padding: 12px 16px; margin: 8px 0;">
+                <div style="font-weight: 500; color: {TEXT};">⚠️ אזור סכנה - איפוס נתונים</div>
+                <div style="font-size: 0.85rem; color: {MUTED}; margin-top: 4px;">
+                    מיועד לשלב הבדיקות. פעולות אלה בלתי הפיכות!
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # איפוס נתוני פעילות
+        st.markdown("**איפוס סריקות ותקלות** (משאיר מצלמות)")
+        confirm_activity = st.checkbox(
+            "אני מאשר מחיקת כל הסריקות והתקלות",
+            key="confirm_reset_activity",
+        )
+        if st.button(
+            "🧹 מחק סריקות + תקלות",
+            disabled=not confirm_activity,
+            key="reset_activity_btn",
+        ):
+            db.reset_scans_and_faults()
+            st.session_state.pop("confirm_reset_activity", None)
+            st.success("כל הסריקות והתקלות נמחקו. המצלמות נשארו.")
+            st.rerun()
+
+        st.markdown("")
+        st.markdown("**איפוס מלא** (מוחק גם מצלמות)")
+        confirm_full = st.checkbox(
+            "אני מאשר מחיקת הכל כולל המצלמות",
+            key="confirm_reset_full",
+        )
+        if st.button(
+            "💥 מחק הכל",
+            disabled=not confirm_full,
+            key="reset_full_btn",
+        ):
+            db.reset_all_data()
+            st.session_state.pop("confirm_reset_full", None)
+            st.success("הכל נמחק. אפשר לטעון שוב 200 מצלמות דמה מלמעלה.")
+            st.rerun()
 
 
 # ============ רענון אוטומטי (מופעל בכל עמוד אם נבחר בהגדרות) ============
