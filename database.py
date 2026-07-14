@@ -69,7 +69,13 @@ def init_db():
             cursor.execute("ALTER TABLE scans ADD COLUMN status TEXT DEFAULT 'ok'")
         if 'event_details' not in existing_cols:
             cursor.execute("ALTER TABLE scans ADD COLUMN event_details TEXT")
-
+# Migration for faults - add reporter/resolver name columns
+        cursor.execute("PRAGMA table_info(faults)")
+        existing_fault_cols = {row['name'] for row in cursor.fetchall()}
+        if 'reported_by' not in existing_fault_cols:
+            cursor.execute("ALTER TABLE faults ADD COLUMN reported_by TEXT")
+        if 'resolved_by' not in existing_fault_cols:
+            cursor.execute("ALTER TABLE faults ADD COLUMN resolved_by TEXT")
         # Now safe to create status index
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_scans_status ON scans(status)")
 
@@ -175,11 +181,11 @@ def delete_camera(camera_id: int):
 
 
 # ========= תקלות =========
-def add_fault(camera_id: int, fault_datetime: str, description: str):
+def add_fault(camera_id: int, fault_datetime: str, description: str, reported_by: str = None):
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO faults (camera_id, fault_datetime, description) VALUES (?, ?, ?)",
-            (camera_id, fault_datetime, description),
+            "INSERT INTO faults (camera_id, fault_datetime, description, reported_by) VALUES (?, ?, ?, ?)",
+            (camera_id, fault_datetime, description, reported_by),
         )
         conn.commit()
 
@@ -207,11 +213,11 @@ def get_all_faults():
         return [dict(r) for r in rows]
 
 
-def resolve_fault(fault_id: int):
+def resolve_fault(fault_id: int, resolved_by: str = None):
     with get_conn() as conn:
         conn.execute(
-            "UPDATE faults SET resolved = 1, resolved_at = ? WHERE id = ?",
-            (_now_il().isoformat(sep=' ', timespec='seconds'), fault_id),
+            "UPDATE faults SET resolved = 1, resolved_at = ?, resolved_by = ? WHERE id = ?",
+            (_now_il().isoformat(sep=' ', timespec='seconds'), resolved_by, fault_id),
         )
         conn.commit()
 
