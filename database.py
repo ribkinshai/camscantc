@@ -331,3 +331,18 @@ def set_setting(key: str, value):
             ON CONFLICT(key) DO UPDATE SET value = excluded.value
         """, (key, str(value)))
         conn.commit()
+def reset_scans_and_faults():
+    """מוחק את כל הסריקות והתקלות. המצלמות וההגדרות נשמרות."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM scans")
+        conn.execute("DELETE FROM faults")
+        conn.commit()
+
+
+def reset_all_data():
+    """מוחק הכל - סריקות, תקלות ומצלמות. ההגדרות נשמרות."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM scans")
+        conn.execute("DELETE FROM faults")
+        conn.execute("DELETE FROM cameras")
+        conn.commit()
