@@ -321,7 +321,8 @@ if page == "סריקה שוטפת":
                         db.add_fault(
                             cam_id,
                             now_il().isoformat(sep=' ', timespec='minutes'),
-                            f"{details.strip()} (דווח ע\"י: {reporter.strip()})",
+                            details.strip(),
+                            reported_by=reporter.strip(),
                         )
                     st.session_state.pop('issue_cam_id', None)
                     st.session_state.pop('issue_cam_name', None)
@@ -552,7 +553,12 @@ elif page == "תקלות":
                                 st.error("יש למלא תיאור")
                             else:
                                 fdt = datetime.combine(fdate, ftime).isoformat(sep=' ', timespec='minutes')
-                                db.add_fault(cam_options[selected_cam], fdt, fdesc.strip())
+                                db.add_fault(
+                                    cam_options[selected_cam],
+                                    fdt,
+                                    fdesc.strip(),
+                                    reported_by=st.session_state.get('scanner_name', ''),
+                                )
                                 st.success("נרשם")
                                 st.rerun()
 
@@ -564,6 +570,7 @@ elif page == "תקלות":
                     "שם המצלמה": f['camera_name'],
                     "תאריך ושעת התקלה": f['fault_datetime'],
                     "תיאור התקלה": f['description'],
+                    "דווח ע\"י": f.get('reported_by') or "-",
                 })
             st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
 
@@ -571,7 +578,7 @@ elif page == "תקלות":
             selected = st.selectbox("פעולה על תקלה:", list(options.keys()))
             ac1, ac2 = st.columns(2)
             if ac1.button("✅ סמן כטופלה", type="primary"):
-                db.resolve_fault(options[selected])
+                db.resolve_fault(options[selected], resolved_by=st.session_state.get('scanner_name', ''))
                 st.rerun()
             if ac2.button("🗑️ מחק דיווח"):
                 db.delete_fault(options[selected])
@@ -588,8 +595,10 @@ elif page == "תקלות":
                         "שם המצלמה": f['camera_name'],
                         "תאריך התקלה": f['fault_datetime'],
                         "תיאור": f['description'],
+                        "דווח ע\"י": f.get('reported_by') or "-",
                         "סטטוס": "טופל" if f['resolved'] else "פעיל",
                         "טופל בתאריך": f['resolved_at'] or "-",
+                        "טופל ע\"י": f.get('resolved_by') or "-",
                     })
                 df = pd.DataFrame(data)
                 st.dataframe(df, use_container_width=True, hide_index=True)
@@ -673,6 +682,7 @@ elif page == "לוח בקרה":
                 "שם המצלמה": f['camera_name'],
                 "תאריך ושעת התקלה": f['fault_datetime'],
                 "תיאור התקלה": f['description'],
+                "דווח ע\"י": f.get('reported_by') or "-",
             })
         st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
 
