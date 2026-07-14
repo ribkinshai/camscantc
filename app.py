@@ -333,7 +333,67 @@ if page == "סריקה שוטפת":
                 st.rerun()
 
         st.stop()
+# ---- כרטיס נציג פעיל (בראש הדף) ----
+    scanner_name = st.session_state.get('scanner_name', '')
+    edit_mode = st.session_state.get('editing_scanner', False)
 
+    if not scanner_name or edit_mode:
+        # מצב עריכה - שדה הזנה בולט
+        st.markdown(f"""
+            <div style="background-color: {AMBER}22; border-right: 3px solid {AMBER};
+                        border-radius: 8px; padding: 14px 18px; margin-bottom: 14px;">
+                <div style="font-weight: 500; color: {TEXT}; font-size: 1.05rem;">
+                    👤 הזן שם נציג למשמרת הנוכחית
+                </div>
+                <div style="font-size: 0.85rem; color: {MUTED}; margin-top: 4px;">
+                    כל הסריקות והתקלות יירשמו על שם זה
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        with st.form("scanner_form"):
+            fc1, fc2 = st.columns([3, 1])
+            new_name = fc1.text_input(
+                "שם הנציג",
+                value=scanner_name,
+                placeholder="שם מלא",
+                label_visibility="collapsed",
+            )
+            if fc2.form_submit_button("💾 שמור", type="primary", use_container_width=True):
+                if new_name.strip():
+                    st.session_state['scanner_name'] = new_name.strip()
+                    st.session_state.pop('editing_scanner', None)
+                    st.rerun()
+                else:
+                    st.error("יש להזין שם")
+
+        if scanner_name and edit_mode:
+            if st.button("↩️ ביטול", key="cancel_edit_scanner"):
+                st.session_state.pop('editing_scanner', None)
+                st.rerun()
+
+        st.stop()
+    else:
+        # מצב תצוגה - כרטיס עם כפתור החלפה
+        nc1, nc2 = st.columns([5, 1])
+        nc1.markdown(f"""
+            <div style="background-color: {SURFACE2}; border: 1px solid {BORDER};
+                        border-right: 3px solid {ACCENT};
+                        border-radius: 8px; padding: 12px 18px;
+                        display: flex; align-items: center; gap: 14px;
+                        margin-bottom: 12px;">
+                <span style="font-size: 1.6rem;">👤</span>
+                <div>
+                    <div style="font-size: 0.75rem; color: {MUTED};">נציג פעיל במשמרת</div>
+                    <div style="font-size: 1.15rem; font-weight: 500; color: {TEXT};">
+                        {scanner_name}
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        if nc2.button("🔄 החלף נציג", use_container_width=True, help="להחלפת נציג בחילופי משמרת"):
+            st.session_state['editing_scanner'] = True
+            st.rerun()
     # ---- תצוגה רגילה ----
     central, rotating = sch.get_cameras_for_hour(current_hour, include_faulty=False)
     scanned_now = db.get_scans_for_hour(current_hour_key)
@@ -365,13 +425,6 @@ if page == "סריקה שוטפת":
         </div>
     </div>
     """, unsafe_allow_html=True)
-
-    scanner_name = st.text_input(
-        "👤 שם הנציג המבצע:",
-        value=st.session_state.get('scanner_name', ''),
-        placeholder="הכנס את שמך כאן",
-    )
-    st.session_state['scanner_name'] = scanner_name
 
     if total > 0:
         st.progress(completed / total)
