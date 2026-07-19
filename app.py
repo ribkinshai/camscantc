@@ -29,7 +29,7 @@ st.set_page_config(
 
 # ============ Session state ============
 if 'theme' not in st.session_state:
-    st.session_state['theme'] = 'dark'
+    st.session_state['theme'] = 'light'
 if 'current_page' not in st.session_state:
     st.session_state['current_page'] = "סריקה שוטפת"
 
