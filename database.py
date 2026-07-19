@@ -27,6 +27,7 @@ def init_db():
                 name TEXT UNIQUE NOT NULL,
                 is_central INTEGER DEFAULT 0,
                 is_active INTEGER DEFAULT 1,
+                area TEXT DEFAULT '',
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -78,7 +79,11 @@ def init_db():
             cursor.execute("ALTER TABLE faults ADD COLUMN resolved_by TEXT")
         # Now safe to create status index
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_scans_status ON scans(status)")
-
+# Migration for cameras - add area column
+        cursor.execute("PRAGMA table_info(cameras)")
+        existing_cam_cols = {row['name'] for row in cursor.fetchall()}
+        if 'area' not in existing_cam_cols:
+            cursor.execute("ALTER TABLE cameras ADD COLUMN area TEXT DEFAULT ''")
         defaults = {
             'central_count': '10',
             'rotating_count': '20',
@@ -106,17 +111,47 @@ def get_conn():
 
 
 # ========= ניהול מצלמות =========
-def add_camera(name: str, is_central: bool = False) -> bool:
+def add_camera(name: str, is_central: bool = False, area: str = '') -> bool:
     with get_conn() as conn:
         try:
             conn.execute(
-                "INSERT INTO cameras (name, is_central) VALUES (?, ?)",
-                (name, 1 if is_central else 0),
+                "INSERT INTO cameras (name, is_central, area) VALUES (?, ?, ?)",
+                (name, 1 if is_central else 0, area),
             )
             conn.commit()
             return True
         except sqlite3.IntegrityError:
             return False
+
+
+def bulk_add_cameras_structured(camera_data, is_central: bool = False) -> int:
+    """camera_data: list of (name, area) tuples"""
+    added = 0
+    with get_conn() as conn:
+        for name, area in camera_data:
+            name = name.strip() if name else ''
+            if not name:
+                continue
+            try:
+                conn.execute(
+                    "INSERT INTO cameras (name, is_central, area) VALUES (?, ?, ?)",
+                    (name, 1 if is_central else 0, area or ''),
+                )
+                added += 1
+            except sqlite3.IntegrityError:
+                pass
+        conn.commit()
+    return added
+
+
+def get_all_areas():
+    """Return sorted list of unique non-empty areas"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT area FROM cameras WHERE is_active = 1 "
+            "AND area IS NOT NULL AND area != '' ORDER BY area"
+        ).fetchall()
+        return [r['area'] for r in rows]
 
 
 def bulk_add_cameras(names, is_central: bool = False) -> int:
@@ -162,7 +197,7 @@ def get_rotating_cameras():
         return [dict(r) for r in rows]
 
 
-def update_camera(camera_id: int, name=None, is_central=None):
+def update_camera(camera_id: int, name=None, is_central=None, area=None):
     with get_conn() as conn:
         if name is not None:
             conn.execute("UPDATE cameras SET name = ? WHERE id = ?", (name, camera_id))
@@ -171,6 +206,8 @@ def update_camera(camera_id: int, name=None, is_central=None):
                 "UPDATE cameras SET is_central = ? WHERE id = ?",
                 (1 if is_central else 0, camera_id),
             )
+        if area is not None:
+            conn.execute("UPDATE cameras SET area = ? WHERE id = ?", (area, camera_id))
         conn.commit()
 
 
