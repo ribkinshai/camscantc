@@ -94,3 +94,53 @@ def get_cameras_for_hour(dt: datetime, include_faulty: bool = False):
     selected = full_group[:slots_for_rotating]
 
     return priority, selected
+
+
+def get_missed_scans(now: datetime, lookback_hours: int = 8):
+    """
+    החזרת רשימה של סריקות שהוחמצו.
+    לכל שעה בטווח הבדיקה - מחזירה (hour_key, camera) לכל מצלמה שלא נסרקה.
+    """
+    missed = []
+    grace_minutes = int(db.get_setting('alert_grace_minutes', '15'))
+    current_hour = now.replace(minute=0, second=0, microsecond=0)
+
+    # בדיקה של שעות שעברו
+    for i in range(1, lookback_hours + 1):
+        past_hour = current_hour - timedelta(hours=i)
+        past_key = hour_key(past_hour)
+        central, rotating = get_cameras_for_hour(past_hour, include_faulty=False)
+        expected = central + rotating
+        scanned = db.get_scans_for_hour(past_key)
+        for cam in expected:
+            if cam['id'] not in scanned:
+                missed.append((past_key, cam))
+
+    # בדיקה של השעה הנוכחית - רק אחרי זמן החסד
+    if now.minute >= grace_minutes:
+        current_key = hour_key(current_hour)
+        central, rotating = get_cameras_for_hour(current_hour, include_faulty=False)
+        expected = central + rotating
+        scanned = db.get_scans_for_hour(current_key)
+        for cam in expected:
+            if cam['id'] not in scanned:
+                missed.append((current_key, cam))
+
+    return missed
+
+
+def get_upcoming_schedule(start_dt: datetime, hours: int = 24):
+    """יצירת לו"ז ל-N השעות הקרובות"""
+    schedule = []
+    start_dt = start_dt.replace(minute=0, second=0, microsecond=0)
+    for i in range(hours):
+        dt = start_dt + timedelta(hours=i)
+        central, rotating = get_cameras_for_hour(dt, include_faulty=False)
+        schedule.append({
+            'datetime': dt,
+            'hour_key': hour_key(dt),
+            'shift': get_shift_name(dt),
+            'central': central,
+            'rotating': rotating,
+        })
+    return schedule
