@@ -968,13 +968,16 @@ elif page == "הגדרות":
             st.session_state.pop("confirm_reset_full", None)
             st.success("הכל נמחק. אפשר לטעון שוב 200 מצלמות דמה מלמעלה.")
             st.rerun()
-st.markdown("---")
-        st.markdown("**מצלמות אמיתיות - טירת כרמל (191 מצלמות ב-35 אזורים)**")
-        current_count = len(db.get_all_cameras())
+
+        st.markdown("---")
+
+        # ---- טעינת מצלמות אמיתיות ----
+        st.markdown("**מצלמות אמיתיות - תירת כרמל (191 מצלמות ב-35 אזורים)**")
+        current_count2 = len(db.get_all_cameras())
         confirm_real = st.checkbox(
             "אני מאשר החלפת כל המצלמות במצלמות האמיתיות של תירת כרמל",
             key="confirm_load_real",
-            help=f"יש כרגע {current_count} מצלמות - כולן יוחלפו + כל הסריקות והתקלות ימחקו",
+            help=f"יש כרגע {current_count2} מצלמות - כולן יוחלפו + כל הסריקות והתקלות ימחקו",
         )
         if st.button(
             "🔄 טען 191 מצלמות אמיתיות",
