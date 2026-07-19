@@ -33,88 +33,54 @@ def get_shift_name(dt: datetime) -> str:
 def get_cameras_for_hour(dt: datetime, include_faulty: bool = False):
     """
     החזרת המצלמות שאמורות להיסרק בשעה מסוימת.
-    מצלמות מרכזיות תמיד נכללות; מצלמות רגילות מסתובבות לפי אינדקס השעה.
+    (priority_cameras, rotating_cameras)
+    - priority: מצלמות עם מדיניות סריקה שתואמת לשעה זו
+    - rotating: מצלמות בסבב רגיל שנבחרות לפי אינדקס השעה
     """
-    central = db.get_central_cameras()
-    rotating = db.get_rotating_cameras()
+    from scan_policies import should_scan
+
+    all_cams = db.get_all_cameras()
 
     if not include_faulty:
         faulty_ids = db.get_faulty_camera_ids()
-        central = [c for c in central if c['id'] not in faulty_ids]
-        rotating = [c for c in rotating if c['id'] not in faulty_ids]
+        all_cams = [c for c in all_cams if c['id'] not in faulty_ids]
+
+    priority = []
+    rotating_pool = []
+
+    for cam in all_cams:
+        policy = (cam.get('scan_policy') or '').strip()
+        # Backward compat: מצלמות שסומנו כ-is_central בלי מדיניות מפורשת = every_hour
+        if not policy and cam.get('is_central'):
+            policy = 'every_hour'
+
+        if policy:
+            if should_scan(policy, dt):
+                priority.append(cam)
+            # אם המדיניות לא תואמת - המצלמה לא מופיעה בשעה זו
+        else:
+            rotating_pool.append(cam)
 
     rotating_count = int(db.get_setting('rotating_count', '20'))
 
-    if not rotating or rotating_count <= 0:
-        return central, []
+    if not rotating_pool or rotating_count <= 0:
+        return priority, []
 
-    # חישוב אינדקס שעה מהעוגן
     dt_hour = dt.replace(minute=0, second=0, microsecond=0)
     hour_index = int((dt_hour - EPOCH).total_seconds() // 3600)
 
-    total_rot = len(rotating)
+    total_rot = len(rotating_pool)
     if rotating_count >= total_rot:
-        return central, rotating
+        return priority, rotating_pool
 
     num_groups = math.ceil(total_rot / rotating_count)
     group = hour_index % num_groups
     start = group * rotating_count
     end = start + rotating_count
-    selected = rotating[start:end]
+    selected = rotating_pool[start:end]
 
-    # אם הקבוצה האחרונה קטנה - נשלים מההתחלה
     if len(selected) < rotating_count:
         needed = rotating_count - len(selected)
-        selected = selected + rotating[:needed]
+        selected = selected + rotating_pool[:needed]
 
-    return central, selected
-
-
-def get_missed_scans(now: datetime, lookback_hours: int = 8):
-    """
-    החזרת רשימה של סריקות שהוחמצו.
-    לכל שעה בטווח הבדיקה - מחזירה (hour_key, camera) לכל מצלמה שלא נסרקה.
-    """
-    missed = []
-    grace_minutes = int(db.get_setting('alert_grace_minutes', '15'))
-    current_hour = now.replace(minute=0, second=0, microsecond=0)
-
-    # בדיקה של שעות שעברו
-    for i in range(1, lookback_hours + 1):
-        past_hour = current_hour - timedelta(hours=i)
-        past_key = hour_key(past_hour)
-        central, rotating = get_cameras_for_hour(past_hour, include_faulty=False)
-        expected = central + rotating
-        scanned = db.get_scans_for_hour(past_key)
-        for cam in expected:
-            if cam['id'] not in scanned:
-                missed.append((past_key, cam))
-
-    # בדיקה של השעה הנוכחית - רק אחרי זמן החסד
-    if now.minute >= grace_minutes:
-        current_key = hour_key(current_hour)
-        central, rotating = get_cameras_for_hour(current_hour, include_faulty=False)
-        expected = central + rotating
-        scanned = db.get_scans_for_hour(current_key)
-        for cam in expected:
-            if cam['id'] not in scanned:
-                missed.append((current_key, cam))
-
-    return missed
-
-
-def get_upcoming_schedule(start_dt: datetime, hours: int = 24):
-    """יצירת לו"ז ל-N השעות הקרובות"""
-    schedule = []
-    start_dt = start_dt.replace(minute=0, second=0, microsecond=0)
-    for i in range(hours):
-        dt = start_dt + timedelta(hours=i)
-        central, rotating = get_cameras_for_hour(dt, include_faulty=False)
-        schedule.append({
-            'datetime': dt,
-            'hour_key': hour_key(dt),
-            'shift': get_shift_name(dt),
-            'central': central,
-            'rotating': rotating,
-        })
-    return schedule
+    return priority, selected
