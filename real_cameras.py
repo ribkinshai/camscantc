@@ -1,6 +1,6 @@
 cat > /home/claude/camera-scan-tracker/real_cameras.py << 'PYEOF'
 """
-191 מצלמות אמיתיות - מוקד תירת כרמל
+191 מצלמות אמיתיות - מוקד טירת כרמל
 Real cameras data - Tirat Carmel control room
 מפורק לפי אזור לצורך סינון וסיווג.
 """
