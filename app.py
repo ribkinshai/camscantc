@@ -516,13 +516,14 @@ if page == "סריקה שוטפת":
 
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown(f"**קבועות** · {len(filtered_central)}")
+        st.markdown(f"**🎯 חובה בשעה זו** · {len(filtered_central)}")
+        st.caption("מצלמות עם מדיניות סריקה שתואמת לשעה הנוכחית")
         if not filtered_central and search.strip():
             st.caption("אין תוצאות")
         for cam in filtered_central:
             render_row(cam, "c")
     with col2:
-        st.markdown(f"**מתחלפות** · {len(filtered_rotating)}")
+        st.markdown(f"**🔄 בסבב** · {len(filtered_rotating)}")
         if not filtered_rotating and search.strip():
             st.caption("אין תוצאות")
         for cam in filtered_rotating:
@@ -765,14 +766,21 @@ elif page == "מצלמות":
                 indicator = f' <span style="color:{RED}; font-size: 0.85rem;">⚠ תקולה</span>' if is_faulty else ''
                 cols[0].markdown(f'<span class="camera-name">{cam["name"]}</span>{indicator}', unsafe_allow_html=True)
                 area_display = cam.get('area', '') or '-'
+                policy_display = cam.get('scan_policy', '') or 'בסבב'
+                try:
+                    from scan_policies import POLICY_DESCRIPTIONS
+                    policy_text = POLICY_DESCRIPTIONS.get(policy_display, policy_display) if policy_display != 'בסבב' else 'בסבב'
+                except ImportError:
+                    policy_text = policy_display
                 cols[1].markdown(
-                    f'<span style="color:{MUTED}; font-size:0.85rem;">🗂️ {area_display}</span>',
+                    f'<span style="color:{MUTED}; font-size:0.8rem;">🗂️ {area_display}<br>⏰ {policy_text}</span>',
                     unsafe_allow_html=True,
                 )
                 new_central = cols[2].checkbox(
-                    "קבועה",
+                    "בכל שעה",
                     value=bool(cam['is_central']),
                     key=f"central_{cam['id']}",
+                    help="סמן כדי לגרום למצלמה זו להיסרק בכל שעה (מעקף למדיניות)",
                 )
                 if new_central != bool(cam['is_central']):
                     db.update_camera(cam['id'], is_central=new_central)
