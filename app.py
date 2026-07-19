@@ -433,19 +433,36 @@ if page == "סריקה שוטפת":
         st.info("אין מצלמות מוגדרות. עבור ל'ניהול → מצלמות' להוסיף.")
         st.stop()
 
-    # חיפוש מהיר
-    search = st.text_input(
+    # חיפוש וסינון
+    fc1, fc2 = st.columns([2, 1])
+    search = fc1.text_input(
         "🔍 חיפוש מצלמה",
         "",
-        placeholder="הקלד שם או חלק ממנו...",
+        placeholder="הקלד שם, מספר או חלק ממנו...",
     )
+
+    all_areas_for_hour = sorted(set(c.get('area', '') for c in central + rotating if c.get('area')))
+    if all_areas_for_hour:
+        selected_area = fc2.selectbox(
+            "🗂️ אזור",
+            ["כל האזורים"] + all_areas_for_hour,
+        )
+    else:
+        selected_area = "כל האזורים"
 
     filtered_central = central
     filtered_rotating = rotating
+
     if search.strip():
         s = search.strip().lower()
-        filtered_central = [c for c in central if s in c['name'].lower()]
-        filtered_rotating = [c for c in rotating if s in c['name'].lower()]
+        filtered_central = [c for c in filtered_central if s in c['name'].lower()]
+        filtered_rotating = [c for c in filtered_rotating if s in c['name'].lower()]
+
+    if selected_area != "כל האזורים":
+        filtered_central = [c for c in filtered_central if c.get('area') == selected_area]
+        filtered_rotating = [c for c in filtered_rotating if c.get('area') == selected_area]
+
+    if search.strip() or selected_area != "כל האזורים":
         st.caption(f"נמצאו {len(filtered_central) + len(filtered_rotating)} מצלמות")
 
     def render_row(cam, prefix):
@@ -715,7 +732,13 @@ elif page == "מצלמות":
         central_count = sum(1 for c in cams if c['is_central'])
         st.markdown(f"סה\"כ: **{len(cams)}** · קבועות: **{central_count}** · מתחלפות: **{len(cams) - central_count}**")
 
-        search = st.text_input("🔍 חיפוש", "")
+        mc1, mc2 = st.columns([1, 1])
+        search = mc1.text_input("🔍 חיפוש", "")
+        all_areas = db.get_all_areas()
+        selected_manage_area = mc2.selectbox(
+            "🗂️ סנן לפי אזור",
+            ["כל האזורים"] + all_areas,
+        )
         filter_type = st.radio(
             "סנן:",
             ["הכל", "קבועות", "מתחלפות"],
@@ -725,6 +748,8 @@ elif page == "מצלמות":
         filtered = cams
         if search:
             filtered = [c for c in filtered if search.lower() in c['name'].lower()]
+        if selected_manage_area != "כל האזורים":
+            filtered = [c for c in filtered if c.get('area') == selected_manage_area]
         if filter_type == "קבועות":
             filtered = [c for c in filtered if c['is_central']]
         elif filter_type == "מתחלפות":
@@ -736,10 +761,15 @@ elif page == "מצלמות":
             faulty_ids = db.get_faulty_camera_ids()
             for cam in filtered:
                 is_faulty = cam['id'] in faulty_ids
-                cols = st.columns([4, 2, 1])
+                cols = st.columns([3, 2, 2, 1])
                 indicator = f' <span style="color:{RED}; font-size: 0.85rem;">⚠ תקולה</span>' if is_faulty else ''
                 cols[0].markdown(f'<span class="camera-name">{cam["name"]}</span>{indicator}', unsafe_allow_html=True)
-                new_central = cols[1].checkbox(
+                area_display = cam.get('area', '') or '-'
+                cols[1].markdown(
+                    f'<span style="color:{MUTED}; font-size:0.85rem;">🗂️ {area_display}</span>',
+                    unsafe_allow_html=True,
+                )
+                new_central = cols[2].checkbox(
                     "קבועה",
                     value=bool(cam['is_central']),
                     key=f"central_{cam['id']}",
@@ -747,7 +777,7 @@ elif page == "מצלמות":
                 if new_central != bool(cam['is_central']):
                     db.update_camera(cam['id'], is_central=new_central)
                     st.rerun()
-                if cols[2].button("🗑️", key=f"del_{cam['id']}"):
+                if cols[3].button("🗑️", key=f"del_{cam['id']}"):
                     db.delete_camera(cam['id'])
                     st.rerun()
 
@@ -938,7 +968,30 @@ elif page == "הגדרות":
             st.session_state.pop("confirm_reset_full", None)
             st.success("הכל נמחק. אפשר לטעון שוב 200 מצלמות דמה מלמעלה.")
             st.rerun()
-
+st.markdown("---")
+        st.markdown("**מצלמות אמיתיות - תירת כרמל (191 מצלמות ב-35 אזורים)**")
+        current_count = len(db.get_all_cameras())
+        confirm_real = st.checkbox(
+            "אני מאשר החלפת כל המצלמות במצלמות האמיתיות של תירת כרמל",
+            key="confirm_load_real",
+            help=f"יש כרגע {current_count} מצלמות - כולן יוחלפו + כל הסריקות והתקלות ימחקו",
+        )
+        if st.button(
+            "🔄 טען 191 מצלמות אמיתיות",
+            disabled=not confirm_real,
+            key="load_real_btn",
+        ):
+            try:
+                import real_cameras
+                db.reset_all_data()
+                added = db.bulk_add_cameras_structured(
+                    real_cameras.get_camera_data_for_import()
+                )
+                st.session_state.pop("confirm_load_real", None)
+                st.success(f"הוחלפו במערכת {added} מצלמות אמיתיות ב-{len(db.get_all_areas())} אזורים")
+                st.rerun()
+            except ImportError:
+                st.error("קובץ real_cameras.py לא נמצא בשרת - וודא שהעלית אותו")
 
 # ============ רענון אוטומטי (מופעל בכל עמוד אם נבחר בהגדרות) ============
 if st.session_state.get('auto_refresh', False):
