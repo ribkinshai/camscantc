@@ -67,7 +67,15 @@ st.markdown(f"""
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {{
         background-color: {BG};
     }}
-    [data-testid="stSidebar"] {{ background-color: {SURFACE}; }}
+    [data-testid="stSidebar"] {{
+        background-color: {SURFACE};
+        right: 0 !important;
+        left: unset !important;
+    }}
+    [data-testid="collapsedControl"] {{
+        right: 0.5rem !important;
+        left: unset !important;
+    }}
     [data-testid="stHeader"] {{ background-color: transparent; }}
 
     .stMarkdown, p, li, span, label, h1, h2, h3, h4, h5, h6 {{
@@ -247,8 +255,8 @@ with st.sidebar:
     st.markdown("---")
 
     _nav_button("סריקה שוטפת", "✅ סריקה שוטפת")
-    _nav_button("תקלות", "⚠️ תקלות")
     _nav_button("לוח בקרה", "📊 לוח בקרה")
+    _nav_button("תקלות", "⚠️ תקלות")
 
     with st.expander("⚙️ ניהול"):
         _nav_button("מצלמות", "🎥 מצלמות")
