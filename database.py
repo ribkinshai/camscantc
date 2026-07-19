@@ -89,7 +89,7 @@ def init_db():
             cursor.execute("ALTER TABLE cameras ADD COLUMN scan_policy TEXT DEFAULT ''")
         defaults = {
             'central_count': '10',
-            'rotating_count': '20',
+            'rotating_count': '30',
             'shift_morning_start': '07',
             'shift_evening_start': '15',
             'shift_night_start': '23',
