@@ -34,8 +34,8 @@ def get_cameras_for_hour(dt: datetime, include_faulty: bool = False):
     """
     החזרת המצלמות שאמורות להיסרק בשעה מסוימת.
     (priority_cameras, rotating_cameras)
-    - priority: מצלמות עם מדיניות סריקה שתואמת לשעה זו
-    - rotating: מצלמות בסבב רגיל שנבחרות לפי אינדקס השעה
+    - priority: מצלמות עם מדיניות סריקה שתואמת לשעה זו (תמיד מוצגות)
+    - rotating: משלים עד ליעד הסה"כ (ברירת מחדל 30 סריקות בשעה)
     """
     from scan_policies import should_scan
 
@@ -50,37 +50,47 @@ def get_cameras_for_hour(dt: datetime, include_faulty: bool = False):
 
     for cam in all_cams:
         policy = (cam.get('scan_policy') or '').strip()
-        # Backward compat: מצלמות שסומנו כ-is_central בלי מדיניות מפורשת = every_hour
+        # Backward compat: is_central=1 בלי מדיניות = every_hour
         if not policy and cam.get('is_central'):
             policy = 'every_hour'
 
         if policy:
             if should_scan(policy, dt):
                 priority.append(cam)
-            # אם המדיניות לא תואמת - המצלמה לא מופיעה בשעה זו
         else:
             rotating_pool.append(cam)
 
-    rotating_count = int(db.get_setting('rotating_count', '20'))
+    # יעד סה"כ סריקות בשעה
+    target_total = int(db.get_setting('rotating_count', '30'))
 
-    if not rotating_pool or rotating_count <= 0:
+    # כמה סלוטים נשארים לסבב אחרי מצלמות החובה
+    slots_for_rotating = max(0, target_total - len(priority))
+
+    if not rotating_pool or slots_for_rotating <= 0:
         return priority, []
 
     dt_hour = dt.replace(minute=0, second=0, microsecond=0)
     hour_index = int((dt_hour - EPOCH).total_seconds() // 3600)
 
     total_rot = len(rotating_pool)
-    if rotating_count >= total_rot:
-        return priority, rotating_pool
 
-    num_groups = math.ceil(total_rot / rotating_count)
+    # אם כל המצלמות בסבב נכנסות ליעד
+    if target_total >= total_rot:
+        return priority, rotating_pool[:slots_for_rotating]
+
+    # חלוקה לקבוצות בגודל target_total (בסיס יציב לסבב)
+    num_groups = math.ceil(total_rot / target_total)
     group = hour_index % num_groups
-    start = group * rotating_count
-    end = start + rotating_count
-    selected = rotating_pool[start:end]
+    start = group * target_total
+    end = start + target_total
+    full_group = rotating_pool[start:end]
 
-    if len(selected) < rotating_count:
-        needed = rotating_count - len(selected)
-        selected = selected + rotating_pool[:needed]
+    # השלמה מההתחלה אם הקבוצה קטנה מהיעד
+    if len(full_group) < target_total:
+        needed = target_total - len(full_group)
+        full_group = full_group + rotating_pool[:needed]
+
+    # מציגים רק כמה שיש מקום להם
+    selected = full_group[:slots_for_rotating]
 
     return priority, selected
