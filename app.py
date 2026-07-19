@@ -873,9 +873,10 @@ elif page == "הגדרות":
     st.markdown("### הגדרות סריקה")
     with st.form("scan_settings"):
         rotating_count = st.number_input(
-            "מצלמות מתחלפות בכל שעה",
+            "מקסימום סריקות בשעה (סה\"כ)",
             min_value=1, max_value=200,
-            value=int(db.get_setting('rotating_count', '20')),
+            value=int(db.get_setting('rotating_count', '30')),
+            help="סה\"כ מצלמות שיוצגו לסריקה בכל שעה. מצלמות חובה נכללות במניין - הסבב מתמלא מהיתר.",
         )
         grace = st.number_input(
             "זמן חסד להתראה (דקות)",
