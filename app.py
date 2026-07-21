@@ -8,6 +8,38 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+import json
+
+# מרכז תירת כרמל לתצוגת מפה
+TIRAT_CARMEL_CENTER = [32.7602, 34.9702]
+
+
+def _get_area_coords():
+    """קואורדינטות אזורים - נשמרות כ-JSON בהגדרות"""
+    raw = db.get_setting('area_coords', '{}')
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+
+def _save_area_coords(coords_dict):
+    db.set_setting('area_coords', json.dumps(coords_dict, ensure_ascii=False))
+
+
+def _camera_map_position(cam, area_coords):
+    """מיקום מצלמה במפה: קואורדינטה משלה ← קואורדינטת אזור + פיזור ← None"""
+    if cam.get('latitude') is not None and cam.get('longitude') is not None:
+        return float(cam['latitude']), float(cam['longitude'])
+    area = cam.get('area', '')
+    if area in area_coords:
+        base = area_coords[area]
+        # פיזור דטרמיניסטי סביב מרכז האזור (עד ~15 מטר)
+        cam_id = cam['id']
+        lat_offset = ((cam_id * 7) % 30 - 15) / 100000.0
+        lng_offset = ((cam_id * 13) % 30 - 15) / 100000.0
+        return float(base['lat']) + lat_offset, float(base['lng']) + lng_offset
+    return None
 import database as db
 import scheduler as sch
 
@@ -321,6 +353,7 @@ with st.sidebar:
     _nav_button("סריקה שוטפת", "✅ סריקה שוטפת")
     _nav_button("לוח בקרה", "📊 לוח בקרה")
     _nav_button("תקלות", "⚠️ תקלות")
+    _nav_button("מפה", "🗺️ מפה")
 
     with st.expander("⚙️ ניהול"):
         _nav_button("מצלמות", "🎥 מצלמות")
@@ -685,6 +718,236 @@ elif page == "לוח בקרה":
 
 
 # ============ עמוד: מצלמות ============
+elif page == "מפה":
+    st.header("🗺️ מפת מצלמות תירת כרמל")
+
+    try:
+        import folium
+        from streamlit_folium import st_folium
+    except ImportError:
+        st.error(
+            "חסרות ספריות מפה. וודא ש-`requirements.txt` מכיל: `folium` ו-`streamlit-folium`, "
+            "ואז לחץ Reboot app בסטרימליט."
+        )
+        st.stop()
+
+    map_tab, area_tab, csv_tab = st.tabs([
+        "🗺️ תצוגת מפה",
+        "📍 קואורדינטות אזורים",
+        "📤 יבוא CSV",
+    ])
+
+    all_cams = db.get_all_cameras()
+    faulty_ids = db.get_faulty_camera_ids()
+    area_coords = _get_area_coords()
+
+    # אירועים ב-24 השעות האחרונות
+    recent_start = (now - timedelta(hours=24)).strftime("%Y-%m-%d %H:00")
+    recent_end = now.strftime("%Y-%m-%d %H:00")
+    recent_issues = db.get_issue_scans_in_range(recent_start, recent_end)
+    recent_issue_cam_ids = set(i['camera_id'] for i in recent_issues)
+
+    # חישוב מיקומים
+    positioned = []
+    unpositioned = []
+    for cam in all_cams:
+        pos = _camera_map_position(cam, area_coords)
+        if pos:
+            positioned.append((cam, pos))
+        else:
+            unpositioned.append(cam)
+
+    # ==== טאב מפה ====
+    with map_tab:
+        total = len(all_cams)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("במפה", f"{len(positioned)} / {total}")
+        m2.metric("תקולות במפה", sum(1 for c, _ in positioned if c['id'] in faulty_ids))
+        m3.metric("אירועים (24ש')", sum(1 for c, _ in positioned if c['id'] in recent_issue_cam_ids))
+        m4.metric("ללא מיקום", len(unpositioned))
+
+        if not positioned:
+            st.info(
+                "🗺️ **אין עדיין מצלמות עם מיקום במפה.**\n\n"
+                "**דרכים להוסיף:**\n"
+                "1. עבור לטאב **📍 קואורדינטות אזורים** ← הזן קואורדינטה ל-35 אזורים ← 30 דקות עבודה\n"
+                "2. עבור לטאב **📤 יבוא CSV** ← העלה קובץ עם כל המיקומים\n"
+                "3. עבור ל**ניהול → מצלמות** ← ערוך מצלמה בודדת"
+            )
+        else:
+            filter_opt = st.radio(
+                "הצג:",
+                ["הכל", "רק תקינות", "רק תקולות", "רק עם אירועים אחרונים"],
+                horizontal=True,
+                key="map_filter",
+            )
+
+            display = positioned
+            if filter_opt == "רק תקינות":
+                display = [(c, p) for c, p in positioned
+                           if c['id'] not in faulty_ids and c['id'] not in recent_issue_cam_ids]
+            elif filter_opt == "רק תקולות":
+                display = [(c, p) for c, p in positioned if c['id'] in faulty_ids]
+            elif filter_opt == "רק עם אירועים אחרונים":
+                display = [(c, p) for c, p in positioned if c['id'] in recent_issue_cam_ids]
+
+            fmap = folium.Map(
+                location=TIRAT_CARMEL_CENTER,
+                zoom_start=14,
+                tiles='OpenStreetMap',
+            )
+
+            for cam, (lat, lng) in display:
+                is_faulty = cam['id'] in faulty_ids
+                has_recent_issue = cam['id'] in recent_issue_cam_ids
+
+                if is_faulty:
+                    color = 'red'
+                    icon_name = 'exclamation'
+                    status_text = '⚠️ תקולה'
+                    status_color = '#dc2626'
+                elif has_recent_issue:
+                    color = 'orange'
+                    icon_name = 'eye'
+                    status_text = '👁️ אירוע ב-24 שעות אחרונות'
+                    status_color = '#d97706'
+                else:
+                    color = 'green'
+                    icon_name = 'video-camera'
+                    status_text = '✅ תקינה'
+                    status_color = '#16a34a'
+
+                popup_html = f"""
+                <div style="direction: rtl; font-family: Arial; min-width: 220px;">
+                    <div style="font-weight: bold; font-size: 14px;">{cam['name']}</div>
+                    <div style="color: #666; margin-top: 6px; font-size: 12px;">
+                        🗂️ {cam.get('area', '') or '-'}
+                    </div>
+                    <div style="margin-top: 8px; color: {status_color}; font-weight: bold;">
+                        {status_text}
+                    </div>
+                </div>
+                """
+
+                folium.Marker(
+                    location=[lat, lng],
+                    popup=folium.Popup(popup_html, max_width=280),
+                    tooltip=cam['name'],
+                    icon=folium.Icon(color=color, icon=icon_name, prefix='fa'),
+                ).add_to(fmap)
+
+            st_folium(fmap, width=None, height=650, returned_objects=[], key="main_map")
+
+            st.markdown(f"""
+            <div style="background: {SURFACE2}; padding: 10px 14px; border-radius: 6px; margin-top: 10px;">
+                <b>מקרא:</b>
+                <span style="margin: 0 16px; color: {ACCENT};">🟢 תקינה</span>
+                <span style="margin: 0 16px; color: {AMBER};">🟠 אירוע ב-24 שעות</span>
+                <span style="color: {RED};">🔴 תקולה</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        if unpositioned:
+            with st.expander(f"📍 {len(unpositioned)} מצלמות ללא מיקום"):
+                data = [{"שם": c['name'], "אזור": c.get('area', '') or '-'} for c in unpositioned]
+                st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
+
+    # ==== טאב אזורים ====
+    with area_tab:
+        st.markdown("### 📍 עריכת קואורדינטות אזורים")
+        st.caption("הזן קואורדינטה מרכזית לכל אזור. כל המצלמות באזור יופיעו סביב הנקודה עם פיזור קטן.")
+
+        areas = db.get_all_areas()
+        st.caption(f"מרכז תירת כרמל: **32.7602, 34.9702** (העתק והדבק כנקודת עוגן)")
+
+        with st.form("area_coords_form"):
+            for area in areas:
+                curr = area_coords.get(area, {})
+                cols = st.columns([2, 1, 1])
+                cols[0].markdown(f"**{area}**")
+                cols[1].text_input(
+                    "קו רוחב",
+                    value=str(curr.get('lat', '')) if curr.get('lat') else "",
+                    placeholder="32.760000",
+                    key=f"area_lat_{area}",
+                    label_visibility="collapsed",
+                )
+                cols[2].text_input(
+                    "קו אורך",
+                    value=str(curr.get('lng', '')) if curr.get('lng') else "",
+                    placeholder="34.970000",
+                    key=f"area_lng_{area}",
+                    label_visibility="collapsed",
+                )
+
+            if st.form_submit_button("💾 שמור קואורדינטות אזורים", type="primary"):
+                new_coords = {}
+                errors = []
+                for area in areas:
+                    lat_str = st.session_state.get(f"area_lat_{area}", "").strip()
+                    lng_str = st.session_state.get(f"area_lng_{area}", "").strip()
+                    if not lat_str and not lng_str:
+                        continue
+                    try:
+                        new_coords[area] = {'lat': float(lat_str), 'lng': float(lng_str)}
+                    except ValueError:
+                        errors.append(area)
+                if errors:
+                    st.error(f"שגיאה באזורים: {', '.join(errors)}")
+                else:
+                    _save_area_coords(new_coords)
+                    st.success(f"נשמרו קואורדינטות ל-{len(new_coords)} אזורים")
+                    st.rerun()
+
+    # ==== טאב CSV ====
+    with csv_tab:
+        st.markdown("### 📤 יבוא קואורדינטות מקובץ CSV")
+        st.caption("פורמט: `camera_number,latitude,longitude` (למשל: `40,32.7530,34.9689`)")
+
+        uploaded = st.file_uploader("העלה CSV", type=['csv'], key="coord_csv")
+        if uploaded is not None:
+            try:
+                df_upload = pd.read_csv(uploaded)
+                if not all(col in df_upload.columns for col in ['camera_number', 'latitude', 'longitude']):
+                    st.error("הקובץ חייב לכלול עמודות: camera_number, latitude, longitude")
+                else:
+                    st.write(f"נקרא: **{len(df_upload)}** שורות")
+                    st.dataframe(df_upload.head(10), use_container_width=True)
+
+                    if st.button("✅ אשר ייבא", type="primary"):
+                        cams = db.get_all_cameras()
+                        updated = 0
+                        not_found = []
+                        for _, row in df_upload.iterrows():
+                            try:
+                                num = int(row['camera_number'])
+                                lat = float(row['latitude'])
+                                lng = float(row['longitude'])
+                                prefix = f"#{num} - "
+                                matching = [c for c in cams if c['name'].startswith(prefix)]
+                                if matching:
+                                    db.update_camera_location(matching[0]['id'], lat, lng)
+                                    updated += 1
+                                else:
+                                    not_found.append(num)
+                            except (ValueError, TypeError):
+                                pass
+                        st.success(f"עודכנו {updated} מצלמות")
+                        if not_found:
+                            st.warning(f"לא נמצאו במערכת: {not_found[:20]}{'...' if len(not_found) > 20 else ''}")
+                        st.rerun()
+            except Exception as e:
+                st.error(f"שגיאה בקריאת הקובץ: {e}")
+
+        st.markdown("---")
+        st.markdown("**דוגמה לקובץ CSV:**")
+        st.code(
+            "camera_number,latitude,longitude\n"
+            "40,32.7530,34.9689\n"
+            "41,32.7531,34.9690\n"
+            "48,32.7602,34.9702",
+            language="csv",
+        )
 elif page == "מצלמות":
     st.header("ניהול מצלמות")
 
@@ -750,6 +1013,11 @@ elif page == "מצלמות":
                 if cols[3].button("🗑️", key=f"del_{cam['id']}"):
                     db.delete_camera(cam['id'])
                     st.rerun()
+
+                # הצגת סטטוס מיקום מתחת לשם (אם רלוונטי)
+                has_own_coords = cam.get('latitude') is not None and cam.get('longitude') is not None
+                if has_own_coords:
+                    st.caption(f"📍 {cam['latitude']:.5f}, {cam['longitude']:.5f}")
 
     with tab2:
         with st.form("add_camera"):
