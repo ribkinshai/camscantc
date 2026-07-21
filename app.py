@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
-
+import streamlit.components.v1 as components
 import database as db
 import scheduler as sch
 
@@ -328,13 +328,50 @@ with st.sidebar:
         _nav_button("הגדרות", "⚙️ הגדרות")
 
     now = now_il()
-    st.markdown(f"""
-    <div style="margin-top: 20px; padding-top: 12px; border-top: 1px solid {BORDER};
-                font-size: 0.85rem; color: {MUTED}; line-height: 1.7;">
-        <div><b style="color:{TEXT};">🕐 {now.strftime('%H:%M')}</b> · {now.strftime('%d/%m/%Y')}</div>
+    st.markdown(
+        f'<div style="margin-top: 20px; padding-top: 12px; border-top: 1px solid {BORDER};"></div>',
+        unsafe_allow_html=True,
+    )
+    components.html(f"""
+    <style>
+        body {{
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Assistant', sans-serif;
+        }}
+    </style>
+    <div style="font-size: 0.85rem; color: {MUTED}; line-height: 1.7;
+                direction: rtl; text-align: right;">
+        <div>
+            <b style="color:{TEXT};">🕐 <span id="clk-time">--:--:--</span></b>
+            · <span id="clk-date">--/--/----</span>
+        </div>
         <div>משמרת: <b style="color:{TEXT};">{sch.get_shift_name(now)}</b></div>
     </div>
-    """, unsafe_allow_html=True)
+    <script>
+    (function() {{
+        function updateClock() {{
+            var now = new Date();
+            var timeStr = now.toLocaleTimeString('en-GB', {{
+                timeZone: 'Asia/Jerusalem',
+                hour12: false,
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            }});
+            var dateStr = now.toLocaleDateString('en-GB', {{
+                timeZone: 'Asia/Jerusalem'
+            }});
+            var t = document.getElementById('clk-time');
+            var d = document.getElementById('clk-date');
+            if (t) t.textContent = timeStr;
+            if (d) d.textContent = dateStr;
+        }}
+        updateClock();
+        setInterval(updateClock, 1000);
+    }})();
+    </script>
+    """, height=60)
     st.sidebar.markdown("")
 if st.sidebar.button("🔒 יציאה מהמערכת", use_container_width=True, key="logout_btn"):
     st.session_state.pop('authenticated', None)
