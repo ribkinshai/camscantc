@@ -67,14 +67,25 @@ st.markdown(f"""
     .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {{
         background-color: {BG};
     }}
-    [data-testid="stSidebar"] {{
-        background-color: {SURFACE};
-        right: 0 !important;
-        left: unset !important;
+    [data-testid="stSidebar"] {{ background-color: {SURFACE}; }}
+
+    /* Flip sidebar to right side */
+    [data-testid="stAppViewContainer"] {{
+        flex-direction: row-reverse !important;
     }}
+    section[data-testid="stSidebar"] {{
+        left: auto !important;
+        right: 0 !important;
+    }}
+    section[data-testid="stSidebar"][aria-expanded="false"] {{
+        margin-left: 0 !important;
+        margin-right: -21rem !important;
+        transform: none !important;
+    }}
+    [data-testid="stSidebarCollapseButton"],
     [data-testid="collapsedControl"] {{
         right: 0.5rem !important;
-        left: unset !important;
+        left: auto !important;
     }}
     [data-testid="stHeader"] {{ background-color: transparent; }}
 
