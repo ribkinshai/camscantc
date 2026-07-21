@@ -29,6 +29,8 @@ def init_db():
                 is_active INTEGER DEFAULT 1,
                 area TEXT DEFAULT '',
                 scan_policy TEXT DEFAULT '',
+                latitude REAL,
+                longitude REAL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -87,6 +89,10 @@ def init_db():
             cursor.execute("ALTER TABLE cameras ADD COLUMN area TEXT DEFAULT ''")
         if 'scan_policy' not in existing_cam_cols:
             cursor.execute("ALTER TABLE cameras ADD COLUMN scan_policy TEXT DEFAULT ''")
+        if 'latitude' not in existing_cam_cols:
+            cursor.execute("ALTER TABLE cameras ADD COLUMN latitude REAL")
+        if 'longitude' not in existing_cam_cols:
+            cursor.execute("ALTER TABLE cameras ADD COLUMN longitude REAL")
         defaults = {
             'central_count': '10',
             'rotating_count': '30',
@@ -393,3 +399,34 @@ def reset_all_data():
         conn.execute("DELETE FROM faults")
         conn.execute("DELETE FROM cameras")
         conn.commit()
+# ========= מיקומים =========
+def update_camera_location(camera_id: int, latitude, longitude):
+    """עדכון מיקום גיאוגרפי של מצלמה. שולח None כדי למחוק."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE cameras SET latitude = ?, longitude = ? WHERE id = ?",
+            (latitude, longitude, camera_id),
+        )
+        conn.commit()
+
+
+def get_mapped_cameras():
+    """מצלמות עם קואורדינטות בלבד"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM cameras WHERE is_active = 1 "
+            "AND latitude IS NOT NULL AND longitude IS NOT NULL "
+            "ORDER BY id ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_unmapped_cameras():
+    """מצלמות בלי קואורדינטות"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM cameras WHERE is_active = 1 "
+            "AND (latitude IS NULL OR longitude IS NULL) "
+            "ORDER BY id ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
