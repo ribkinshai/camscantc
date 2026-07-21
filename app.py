@@ -350,64 +350,48 @@ current_hour_key = sch.hour_key(current_hour)
 # ============ עמוד: סריקה שוטפת ============
 if page == "סריקה שוטפת":
 
-    # טופס דיווח אירוע (inline)
+    # ---- חלונית "מדוע לא נסרק?" ----
     if st.session_state.get('issue_cam_id'):
         cam_id = st.session_state['issue_cam_id']
         cam_name = st.session_state.get('issue_cam_name', '')
 
-        st.markdown(f"### ⚠️ דיווח אירוע: {cam_name}")
-        st.caption(f"שעה מתוזמנת: {current_hour_key}")
+        # חלונית ממורכזת וקומפקטית
+        c1, c2, c3 = st.columns([1, 3, 1])
+        with c2:
+            st.markdown(f"### ❌ מדוע לא נסרק?")
+            st.caption(f"מצלמה: **{cam_name}** · שעה: {current_hour_key}")
 
-        with st.form(f"issue_form_{cam_id}", clear_on_submit=False):
-            st.markdown("**👤 שם הנציג המדווח**")
-            reporter = st.text_input(
-                "שם הנציג",
-                value=st.session_state.get('scanner_name', ''),
-                placeholder="שם מלא",
-                label_visibility="collapsed",
-            )
+            with st.form(f"not_scanned_form_{cam_id}", clear_on_submit=False):
+                reason = st.text_area(
+                    "סיבה",
+                    height=120,
+                    placeholder="הקלד כאן את הסיבה...",
+                    label_visibility="collapsed",
+                )
 
-            st.markdown("**📝 פירוט האירוע**")
-            details = st.text_area(
-                "פירוט",
-                height=150,
-                placeholder="למשל: אדם חשוד באזור, תמונה מטושטשת, אזעקה...",
-                label_visibility="collapsed",
-            )
+                bc1, bc2 = st.columns(2)
+                save = bc1.form_submit_button("💾 שמור", type="primary", use_container_width=True)
+                cancel = bc2.form_submit_button("↩️ ביטול", use_container_width=True)
 
-            also_faulty = st.checkbox(
-                "🚫 סמן גם את המצלמה כתקולה (תוחרג מהסריקות עד לתיקון)"
-            )
-
-            col1, col2 = st.columns(2)
-            save = col1.form_submit_button("💾 שמור דיווח", type="primary", use_container_width=True)
-            cancel = col2.form_submit_button("↩️ ביטול", use_container_width=True)
-
-            if save:
-                if not reporter.strip():
-                    st.error("יש למלא שם נציג")
-                elif not details.strip():
-                    st.error("יש למלא פירוט אירוע")
-                else:
-                    db.mark_scan(
-                        cam_id, current_hour_key, reporter.strip(),
-                        status='issue', event_details=details.strip(),
-                    )
-                    if also_faulty:
-                        db.add_fault(
+                if save:
+                    if not reason.strip():
+                        st.error("יש למלא סיבה")
+                    else:
+                        db.mark_scan(
                             cam_id,
-                            now_il().isoformat(sep=' ', timespec='minutes'),
-                            details.strip(),
-                            reported_by=reporter.strip(),
+                            current_hour_key,
+                            st.session_state.get('scanner_name', ''),
+                            status='issue',
+                            event_details=reason.strip(),
                         )
+                        st.session_state.pop('issue_cam_id', None)
+                        st.session_state.pop('issue_cam_name', None)
+                        st.rerun()
+
+                if cancel:
                     st.session_state.pop('issue_cam_id', None)
                     st.session_state.pop('issue_cam_name', None)
                     st.rerun()
-
-            if cancel:
-                st.session_state.pop('issue_cam_id', None)
-                st.session_state.pop('issue_cam_name', None)
-                st.rerun()
 
         st.stop()
 # ---- כרטיס נציג פעיל (בראש הדף) ----
@@ -551,16 +535,14 @@ if page == "סריקה שוטפת":
 
             if status == 'issue':
                 dot_class = 'issue'
-                meta = f"תקלה · {time_str}"
+                meta = f"לא נסרק · {time_str}"
                 if by:
                     meta += f" · {by}"
-                event = f'<div class="event-note">📝 {info.get("event_details", "")}</div>' if info.get('event_details') else ''
             else:
                 dot_class = 'ok'
-                meta = f"תקין · {time_str}"
+                meta = f"נסרק · {time_str}"
                 if by:
                     meta += f" · {by}"
-                event = ''
 
             cols = st.columns([5, 1])
             cols[0].markdown(f"""
@@ -568,11 +550,25 @@ if page == "סריקה שוטפת":
                     <span class="status-dot {dot_class}"></span>
                     <span class="camera-name">{cam['name']}</span>
                     <div class="camera-meta">{meta}</div>
-                    {event}
                 </div>
             """, unsafe_allow_html=True)
             if cols[1].button("בטל", key=f"u_{prefix}_{cam['id']}", use_container_width=True):
                 db.unmark_scan(cam['id'], current_hour_key)
+                st.rerun()
+        else:
+            cols = st.columns([4, 1, 1])
+            cols[0].markdown(f"""
+                <div style="padding: 4px 0;">
+                    <span class="status-dot pending"></span>
+                    <span class="camera-name">{cam['name']}</span>
+                </div>
+            """, unsafe_allow_html=True)
+            if cols[1].button("✅ נסרק", key=f"ok_{prefix}_{cam['id']}", type="primary", use_container_width=True):
+                db.mark_scan(cam['id'], current_hour_key, scanner_name, status='ok')
+                st.rerun()
+            if cols[2].button("❌ לא נסרק", key=f"iss_{prefix}_{cam['id']}", type="tertiary", use_container_width=True):
+                st.session_state['issue_cam_id'] = cam['id']
+                st.session_state['issue_cam_name'] = cam['name']
                 st.rerun()
         else:
             cols = st.columns([4, 1, 1])
