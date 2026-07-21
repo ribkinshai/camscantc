@@ -335,11 +335,11 @@ with st.sidebar:
         <div>משמרת: <b style="color:{TEXT};">{sch.get_shift_name(now)}</b></div>
     </div>
     """, unsafe_allow_html=True)
-    st.markdown("")
-        if st.button("🔒 יציאה מהמערכת", use_container_width=True, key="logout_btn"):
-            st.session_state.pop('authenticated', None)
-            st.session_state.pop('scanner_name', None)
-            st.rerun()
+    st.sidebar.markdown("")
+if st.sidebar.button("🔒 יציאה מהמערכת", use_container_width=True, key="logout_btn"):
+    st.session_state.pop('authenticated', None)
+    st.session_state.pop('scanner_name', None)
+    st.rerun()
 
 page = st.session_state['current_page']
 now = now_il()
