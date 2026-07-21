@@ -10,7 +10,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import json
 
-# מרכז תירת כרמל לתצוגת מפה
+# מרכז טירת כרמל לתצוגת מפה
 TIRAT_CARMEL_CENTER = [32.7602, 34.9702]
 
 
@@ -719,7 +719,7 @@ elif page == "לוח בקרה":
 
 # ============ עמוד: מצלמות ============
 elif page == "מפה":
-    st.header("🗺️ מפת מצלמות תירת כרמל")
+    st.header("🗺️ מפת מצלמות טירת כרמל")
 
     try:
         import folium
@@ -858,7 +858,7 @@ elif page == "מפה":
         st.caption("הזן קואורדינטה מרכזית לכל אזור. כל המצלמות באזור יופיעו סביב הנקודה עם פיזור קטן.")
 
         areas = db.get_all_areas()
-        st.caption(f"מרכז תירת כרמל: **32.7602, 34.9702** (העתק והדבק כנקודת עוגן)")
+        st.caption(f"מרכז טירת כרמל: **32.7602, 34.9702** (העתק והדבק כנקודת עוגן)")
 
         with st.form("area_coords_form"):
             for area in areas:
