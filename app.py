@@ -227,7 +227,60 @@ st.markdown(f"""
     }}
 </style>
 """, unsafe_allow_html=True)
+# ============ הגנת סיסמא ============
+def check_password():
+    """שער סיסמא. אם לא מאומת - מציג מסך כניסה ועוצר."""
+    if st.session_state.get('authenticated'):
+        return
 
+    # מסך כניסה
+    st.markdown(f"""
+    <div style="max-width: 420px; margin: 80px auto 20px; text-align: center;">
+        <div style="font-size: 3.5rem; margin-bottom: 12px;">🎥</div>
+        <h1 style="color: {TEXT}; margin: 0; font-size: 1.8rem;">מוקד רואה</h1>
+        <p style="color: {MUTED}; margin-top: 8px; font-size: 0.95rem;">
+            מערכת מעקב סריקות מצלמות
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
+        with st.form("login_form"):
+            st.markdown(f"**🔒 הזן סיסמא כדי להיכנס**")
+            password = st.text_input(
+                "סיסמא",
+                type="password",
+                placeholder="הזן סיסמא כאן",
+                label_visibility="collapsed",
+            )
+            submitted = st.form_submit_button(
+                "כניסה",
+                type="primary",
+                use_container_width=True,
+            )
+
+            if submitted:
+                expected = None
+                try:
+                    expected = st.secrets.get("APP_PASSWORD")
+                except Exception:
+                    pass
+
+                if not expected:
+                    st.error("סיסמת המערכת לא הוגדרה. פנה למנהל המערכת.")
+                    st.stop()
+
+                if password == expected:
+                    st.session_state['authenticated'] = True
+                    st.rerun()
+                else:
+                    st.error("סיסמא שגויה")
+
+    st.stop()
+
+
+check_password()
 
 # ============ Sidebar ============
 def _nav_button(name, label):
@@ -282,7 +335,11 @@ with st.sidebar:
         <div>משמרת: <b style="color:{TEXT};">{sch.get_shift_name(now)}</b></div>
     </div>
     """, unsafe_allow_html=True)
-
+    st.markdown("")
+        if st.button("🔒 יציאה מהמערכת", use_container_width=True, key="logout_btn"):
+            st.session_state.pop('authenticated', None)
+            st.session_state.pop('scanner_name', None)
+            st.rerun()
 
 page = st.session_state['current_page']
 now = now_il()
