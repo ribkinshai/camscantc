@@ -350,56 +350,11 @@ current_hour_key = sch.hour_key(current_hour)
 # ============ עמוד: סריקה שוטפת ============
 if page == "סריקה שוטפת":
 
-    # ---- חלונית "מדוע לא נסרק?" ----
-    if st.session_state.get('issue_cam_id'):
-        cam_id = st.session_state['issue_cam_id']
-        cam_name = st.session_state.get('issue_cam_name', '')
-
-        # חלונית ממורכזת וקומפקטית
-        c1, c2, c3 = st.columns([1, 3, 1])
-        with c2:
-            st.markdown(f"### ❌ מדוע לא נסרק?")
-            st.caption(f"מצלמה: **{cam_name}** · שעה: {current_hour_key}")
-
-            with st.form(f"not_scanned_form_{cam_id}", clear_on_submit=False):
-                reason = st.text_area(
-                    "סיבה",
-                    height=120,
-                    placeholder="הקלד כאן את הסיבה...",
-                    label_visibility="collapsed",
-                )
-
-                bc1, bc2 = st.columns(2)
-                save = bc1.form_submit_button("💾 שמור", type="primary", use_container_width=True)
-                cancel = bc2.form_submit_button("↩️ ביטול", use_container_width=True)
-
-                if save:
-                    if not reason.strip():
-                        st.error("יש למלא סיבה")
-                    else:
-                        db.mark_scan(
-                            cam_id,
-                            current_hour_key,
-                            st.session_state.get('scanner_name', ''),
-                            status='issue',
-                            event_details=reason.strip(),
-                        )
-                        st.session_state.pop('issue_cam_id', None)
-                        st.session_state.pop('issue_cam_name', None)
-                        st.rerun()
-
-                if cancel:
-                    st.session_state.pop('issue_cam_id', None)
-                    st.session_state.pop('issue_cam_name', None)
-                    st.rerun()
-
-        st.stop()
-# ---- כרטיס נציג פעיל (בראש הדף) ----
+    # ---- כרטיס נציג פעיל ----
     scanner_name = st.session_state.get('scanner_name', '')
     edit_mode = st.session_state.get('editing_scanner', False)
 
     if not scanner_name or edit_mode:
-        # מצב עריכה - שדה הזנה בולט
         st.markdown(f"""
             <div style="background-color: {AMBER}22; border-right: 3px solid {AMBER};
                         border-radius: 8px; padding: 14px 18px; margin-bottom: 14px;">
@@ -415,10 +370,8 @@ if page == "סריקה שוטפת":
         with st.form("scanner_form"):
             fc1, fc2 = st.columns([3, 1])
             new_name = fc1.text_input(
-                "שם הנציג",
-                value=scanner_name,
-                placeholder="שם מלא",
-                label_visibility="collapsed",
+                "שם הנציג", value=scanner_name,
+                placeholder="שם מלא", label_visibility="collapsed",
             )
             if fc2.form_submit_button("💾 שמור", type="primary", use_container_width=True):
                 if new_name.strip():
@@ -435,7 +388,6 @@ if page == "סריקה שוטפת":
 
         st.stop()
     else:
-        # מצב תצוגה - כרטיס עם כפתור החלפה
         nc1, nc2 = st.columns([5, 1])
         nc1.markdown(f"""
             <div style="background-color: {SURFACE2}; border: 1px solid {BORDER};
@@ -452,9 +404,49 @@ if page == "סריקה שוטפת":
                 </div>
             </div>
         """, unsafe_allow_html=True)
-        if nc2.button("🔄 החלף נציג", use_container_width=True, help="להחלפת נציג בחילופי משמרת"):
+        if nc2.button("🔄 החלף נציג", use_container_width=True):
             st.session_state['editing_scanner'] = True
             st.rerun()
+
+    # ---- חלונית "מדוע לא נסרק?" ----
+    if st.session_state.get('issue_cam_id'):
+        cam_id = st.session_state['issue_cam_id']
+        cam_name = st.session_state.get('issue_cam_name', '')
+
+        c1, c2, c3 = st.columns([1, 3, 1])
+        with c2:
+            st.markdown("### ❌ מדוע לא נסרק?")
+            st.caption(f"מצלמה: **{cam_name}** · שעה: {current_hour_key}")
+
+            with st.form(f"not_scanned_form_{cam_id}", clear_on_submit=False):
+                reason = st.text_area(
+                    "סיבה", height=120,
+                    placeholder="הקלד כאן את הסיבה...",
+                    label_visibility="collapsed",
+                )
+                bc1, bc2 = st.columns(2)
+                save = bc1.form_submit_button("💾 שמור", type="primary", use_container_width=True)
+                cancel = bc2.form_submit_button("↩️ ביטול", use_container_width=True)
+
+                if save:
+                    if not reason.strip():
+                        st.error("יש למלא סיבה")
+                    else:
+                        db.mark_scan(
+                            cam_id, current_hour_key,
+                            st.session_state.get('scanner_name', ''),
+                            status='issue', event_details=reason.strip(),
+                        )
+                        st.session_state.pop('issue_cam_id', None)
+                        st.session_state.pop('issue_cam_name', None)
+                        st.rerun()
+                if cancel:
+                    st.session_state.pop('issue_cam_id', None)
+                    st.session_state.pop('issue_cam_name', None)
+                    st.rerun()
+
+        st.stop()
+
     # ---- תצוגה רגילה ----
     central, rotating = sch.get_cameras_for_hour(current_hour, include_faulty=False)
     scanned_now = db.get_scans_for_hour(current_hour_key)
@@ -465,7 +457,6 @@ if page == "סריקה שוטפת":
     issue_count = sum(1 for c in central + rotating
                       if c['id'] in scanned_now and scanned_now[c['id']].get('status') == 'issue')
 
-    # פס עליון
     st.markdown(f"""
     <div class="top-bar">
         <div class="top-item">
@@ -477,7 +468,7 @@ if page == "סריקה שוטפת":
             <div class="value">{completed} / {total}</div>
         </div>
         <div class="top-item">
-            <div class="label">תקין / תקלה</div>
+            <div class="label">נסרק / לא נסרק</div>
             <div class="value">
                 <span style="color:{ACCENT};">{ok_count}</span>
                 <span style="color:{MUTED};"> / </span>
@@ -493,35 +484,26 @@ if page == "סריקה שוטפת":
         st.info("אין מצלמות מוגדרות. עבור ל'ניהול → מצלמות' להוסיף.")
         st.stop()
 
-    # חיפוש וסינון
     fc1, fc2 = st.columns([2, 1])
     search = fc1.text_input(
-        "🔍 חיפוש מצלמה",
-        "",
+        "🔍 חיפוש מצלמה", "",
         placeholder="הקלד שם, מספר או חלק ממנו...",
     )
-
     all_areas_for_hour = sorted(set(c.get('area', '') for c in central + rotating if c.get('area')))
     if all_areas_for_hour:
-        selected_area = fc2.selectbox(
-            "🗂️ אזור",
-            ["כל האזורים"] + all_areas_for_hour,
-        )
+        selected_area = fc2.selectbox("🗂️ אזור", ["כל האזורים"] + all_areas_for_hour)
     else:
         selected_area = "כל האזורים"
 
     filtered_central = central
     filtered_rotating = rotating
-
     if search.strip():
         s = search.strip().lower()
         filtered_central = [c for c in filtered_central if s in c['name'].lower()]
         filtered_rotating = [c for c in filtered_rotating if s in c['name'].lower()]
-
     if selected_area != "כל האזורים":
         filtered_central = [c for c in filtered_central if c.get('area') == selected_area]
         filtered_rotating = [c for c in filtered_rotating if c.get('area') == selected_area]
-
     if search.strip() or selected_area != "כל האזורים":
         st.caption(f"נמצאו {len(filtered_central) + len(filtered_rotating)} מצלמות")
 
@@ -532,17 +514,14 @@ if page == "סריקה שוטפת":
             status = info.get('status') or 'ok'
             by = info['scanned_by'] or ''
             time_str = info['scanned_at'][11:16] if info['scanned_at'] else ''
-
             if status == 'issue':
                 dot_class = 'issue'
                 meta = f"לא נסרק · {time_str}"
-                if by:
-                    meta += f" · {by}"
             else:
                 dot_class = 'ok'
                 meta = f"נסרק · {time_str}"
-                if by:
-                    meta += f" · {by}"
+            if by:
+                meta += f" · {by}"
 
             cols = st.columns([5, 1])
             cols[0].markdown(f"""
@@ -570,21 +549,6 @@ if page == "סריקה שוטפת":
                 st.session_state['issue_cam_id'] = cam['id']
                 st.session_state['issue_cam_name'] = cam['name']
                 st.rerun()
-        else:
-            cols = st.columns([4, 1, 1])
-            cols[0].markdown(f"""
-                <div style="padding: 4px 0;">
-                    <span class="status-dot pending"></span>
-                    <span class="camera-name">{cam['name']}</span>
-                </div>
-            """, unsafe_allow_html=True)
-            if cols[1].button("תקין", key=f"ok_{prefix}_{cam['id']}", type="primary", use_container_width=True):
-                db.mark_scan(cam['id'], current_hour_key, scanner_name, status='ok')
-                st.rerun()
-            if cols[2].button("לא תקין", key=f"iss_{prefix}_{cam['id']}", type="tertiary", use_container_width=True):
-                st.session_state['issue_cam_id'] = cam['id']
-                st.session_state['issue_cam_name'] = cam['name']
-                st.rerun()
 
     col1, col2 = st.columns(2)
     with col1:
@@ -603,122 +567,11 @@ if page == "סריקה שוטפת":
 
     st.markdown("---")
     if not search.strip():
-        if st.button("סמן את כל הנותרות כתקינות", type="secondary"):
+        if st.button("סמן את כל הנותרות כנסרקו", type="secondary"):
             for cam in central + rotating:
                 if cam['id'] not in scanned_now:
                     db.mark_scan(cam['id'], current_hour_key, scanner_name, status='ok')
             st.rerun()
-
-
-# ============ עמוד: תקלות (מאוחד ומשוטח) ============
-elif page == "תקלות":
-    st.header("תקלות ואירועים")
-
-    tab_faulty, tab_events = st.tabs([
-        "🎥 מצלמות תקולות",
-        "📝 אירועים בסריקה (48ש')",
-    ])
-
-    with tab_faulty:
-        faults = db.get_active_faults()
-
-        c1, c2 = st.columns([2, 1])
-        c1.markdown(f"### {len(faults)} תקלות פעילות")
-
-        with c2:
-            with st.expander("➕ דיווח תקלה חדשה"):
-                cams = db.get_all_cameras()
-                if not cams:
-                    st.warning("יש להוסיף מצלמות תחילה")
-                else:
-                    with st.form("report_fault"):
-                        cam_options = {c['name']: c['id'] for c in cams}
-                        selected_cam = st.selectbox("בחר מצלמה", list(cam_options.keys()))
-                        cc1, cc2 = st.columns(2)
-                        fdate = cc1.date_input("תאריך", value=date.today())
-                        ftime = cc2.time_input("שעה", value=time(now.hour, now.minute))
-                        fdesc = st.text_area("תיאור התקלה")
-                        if st.form_submit_button("דווח", type="primary"):
-                            if not fdesc.strip():
-                                st.error("יש למלא תיאור")
-                            else:
-                                fdt = datetime.combine(fdate, ftime).isoformat(sep=' ', timespec='minutes')
-                                db.add_fault(
-                                    cam_options[selected_cam],
-                                    fdt,
-                                    fdesc.strip(),
-                                    reported_by=st.session_state.get('scanner_name', ''),
-                                )
-                                st.success("נרשם")
-                                st.rerun()
-
-        if faults:
-            data = []
-            for f in faults:
-                data.append({
-                    "מזהה": f['id'],
-                    "שם המצלמה": f['camera_name'],
-                    "תאריך ושעת התקלה": f['fault_datetime'],
-                    "תיאור התקלה": f['description'],
-                    "דווח ע\"י": f.get('reported_by') or "-",
-                })
-            st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
-
-            options = {f"#{f['id']} - {f['camera_name']}": f['id'] for f in faults}
-            selected = st.selectbox("פעולה על תקלה:", list(options.keys()))
-            ac1, ac2 = st.columns(2)
-            if ac1.button("✅ סמן כטופלה", type="primary"):
-                db.resolve_fault(options[selected], resolved_by=st.session_state.get('scanner_name', ''))
-                st.rerun()
-            if ac2.button("🗑️ מחק דיווח"):
-                db.delete_fault(options[selected])
-                st.rerun()
-        else:
-            st.success("✅ אין תקלות פעילות")
-
-        with st.expander("📚 היסטוריית תקלות (כולל טופלו)"):
-            all_faults = db.get_all_faults()
-            if all_faults:
-                data = []
-                for f in all_faults:
-                    data.append({
-                        "שם המצלמה": f['camera_name'],
-                        "תאריך התקלה": f['fault_datetime'],
-                        "תיאור": f['description'],
-                        "דווח ע\"י": f.get('reported_by') or "-",
-                        "סטטוס": "טופל" if f['resolved'] else "פעיל",
-                        "טופל בתאריך": f['resolved_at'] or "-",
-                        "טופל ע\"י": f.get('resolved_by') or "-",
-                    })
-                df = pd.DataFrame(data)
-                st.dataframe(df, use_container_width=True, hide_index=True)
-                csv = df.to_csv(index=False).encode('utf-8-sig')
-                st.download_button("📥 הורד CSV", csv, "faults_history.csv", "text/csv")
-            else:
-                st.info("אין היסטוריה")
-
-    with tab_events:
-        st.markdown("**אירועים שדווחו במהלך סריקות ב-48 שעות אחרונות**")
-        start_key = (now - timedelta(hours=48)).strftime("%Y-%m-%d %H:00")
-        end_key = now.strftime("%Y-%m-%d %H:00")
-        events = db.get_issue_scans_in_range(start_key, end_key)
-
-        if events:
-            data = []
-            for e in events:
-                data.append({
-                    "שעת סריקה": e['scheduled_hour'],
-                    "שם המצלמה": e['camera_name'],
-                    "פירוט האירוע": e['event_details'] or "-",
-                    "דווח ע\"י": e['scanned_by'] or "-",
-                    "דווח בפועל": e['scanned_at'] or "-",
-                })
-            df = pd.DataFrame(data)
-            st.dataframe(df, use_container_width=True, hide_index=True)
-            csv = df.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 הורד CSV", csv, "events.csv", "text/csv")
-        else:
-            st.success("✅ אין אירועים ב-48 השעות האחרונות")
 
 
 # ============ עמוד: לוח בקרה (כולל לו"ז) ============
