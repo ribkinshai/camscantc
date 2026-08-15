@@ -544,27 +544,45 @@ if page == "סריקה שוטפת":
             info = scanned_now[cam['id']]
             status = info.get('status') or 'ok'
             by = info['scanned_by'] or ''
-            time_str = info['scanned_at'][11:16] if info['scanned_at'] else ''
+            time_str = info['scanned_at'][11:19] if info['scanned_at'] else ''  # HH:MM:SS
+            date_str = info['scanned_at'][:10] if info['scanned_at'] else ''    # YYYY-MM-DD
             if status == 'issue':
                 dot_class = 'issue'
-                meta = f"לא נסרק · {time_str}"
+                badge_bg = RED
+                badge_label = 'לא נסרק'
             else:
                 dot_class = 'ok'
-                meta = f"נסרק · {time_str}"
-            if by:
-                meta += f" · {by}"
+                badge_bg = ACCENT
+                badge_label = 'נסרק'
 
-            cols = st.columns([5, 1])
-            cols[0].markdown(f"""
-                <div style="padding: 4px 0;">
-                    <span class="status-dot {dot_class}"></span>
-                    <span class="camera-name">{cam['name']}</span>
-                    <div class="camera-meta">{meta}</div>
+            meta_parts = []
+            if by:
+                meta_parts.append(f"ע\"י {by}")
+            meta_parts.append(f"📅 {date_str}")
+            meta_text = ' · '.join(meta_parts)
+
+            # השורה נעולה - אין כפתור ביטול, יש חותמת זמן קבועה
+            st.markdown(f"""
+                <div style="padding: 8px 12px; margin-bottom: 6px;
+                            background-color: {SURFACE2}; border-right: 3px solid {badge_bg};
+                            border-radius: 6px;">
+                    <div style="display: flex; align-items: center; gap: 10px; justify-content: space-between;">
+                        <div style="flex: 1;">
+                            <span class="status-dot {dot_class}"></span>
+                            <span class="camera-name">{cam['name']}</span>
+                        </div>
+                        <div style="background-color: {badge_bg}; color: white;
+                                    padding: 4px 12px; border-radius: 6px;
+                                    font-weight: 500; font-size: 0.9rem;
+                                    font-family: 'Courier New', monospace;">
+                            🕐 {time_str} · {badge_label}
+                        </div>
+                    </div>
+                    <div class="camera-meta" style="margin-top: 4px; font-size: 0.75rem;">
+                        🔒 {meta_text}
+                    </div>
                 </div>
             """, unsafe_allow_html=True)
-            if cols[1].button("בטל", key=f"u_{prefix}_{cam['id']}", use_container_width=True):
-                db.unmark_scan(cam['id'], current_hour_key)
-                st.rerun()
         else:
             cols = st.columns([4, 1, 1])
             cols[0].markdown(f"""
