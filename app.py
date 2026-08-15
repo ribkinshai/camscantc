@@ -260,7 +260,6 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 auth.require_login((TEXT, MUTED, BG, SURFACE))
-
     # מסך כניסה
     st.markdown(f"""
     <div style="max-width: 420px; margin: 80px auto 20px; text-align: center;">
