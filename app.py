@@ -997,28 +997,26 @@ elif page == "נקודות חמות":
             hours_display = ' · '.join(hs.get('active_hours', [])) if hs.get('active_hours') else 'לא הוגדר'
             cams_count = len(hs.get('camera_ids', []))
 
-            st.markdown(f"""
-                <div style="background-color: {SURFACE2}; border-right: 4px solid {priority_colors[p]};
+            # בניית הטקסטים לפני ה-markdown (הרבה יותר בטוח)
+            address_part = f'📍 {site.get("address")} · ' if site.get('address') else ''
+            date_part = f' · 📅 {date_range}' if date_range else ''
+            notes_html = ''
+            if site.get('notes'):
+                notes_html = f'<div style="margin-top: 8px; font-size: 0.9rem; color: {TEXT};"><b>📝 הערות:</b> {site.get("notes")}</div>'
+
+            card_html = f"""
+                <div style="background-color: {SURFACE2}; border-right: 4px solid {AMBER};
                             border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                        <div style="flex: 1;">
-                            <div style="font-size: 1.15rem; font-weight: 600; color: {TEXT};">
-                                {priority_icons[p]} {hs['name']}
-                            </div>
-                            <div style="font-size: 0.85rem; color: {MUTED}; margin-top: 4px;">
-                                🗂️ {hs.get('area', 'לא הוגדר')} · עדיפות: {priority_labels[p]} · {cams_count} מצלמות משויכות
-                            </div>
-                        </div>
+                    <div style="font-size: 1.15rem; font-weight: 600; color: {TEXT};">
+                        🏗️ {site['name']}
                     </div>
-                    <div style="margin-top: 10px; font-size: 0.9rem; color: {TEXT};">
-                        <b>⏰ שעות פעילות:</b> {hours_display}
+                    <div style="font-size: 0.85rem; color: {MUTED}; margin-top: 4px;">
+                        {address_part}{cams_count} מצלמות משויכות{date_part}
                     </div>
-                    <div style="margin-top: 6px; font-size: 0.9rem; color: {TEXT};">
-                        <b>👁️ מה מחפשים:</b> {hs.get('watching_for') or 'לא הוגדר'}
-                    </div>
-                    {f'<div style="margin-top: 6px; font-size: 0.85rem; color: {MUTED};"><b>📝 הערות:</b> {hs.get("notes")}</div>' if hs.get('notes') else ''}
+                    {notes_html}
                 </div>
-            """, unsafe_allow_html=True)
+            """
+            st.markdown(card_html, unsafe_allow_html=True)
 
             if _is_manager_hs:
                 ac1, ac2, ac3 = st.columns([1, 1, 4])
