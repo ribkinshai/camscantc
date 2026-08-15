@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
+import plotly.express as px
 import json
 
 # מרכז טירת כרמל לתצוגת מפה
@@ -644,79 +645,215 @@ if page == "סריקה שוטפת":
 # ============ עמוד: לוח בקרה (כולל לו"ז) ============
 elif page == "לוח בקרה":
     _is_manager = st.session_state.get('user_role') == 'manager'
+
     if _is_manager:
         st.header("📊 דשבורד מנהלת · מוקד 106")
         st.caption(f"תמונת מצב חיה של פעילות המוקד · מחוברת: {st.session_state.get('user_name', '')}")
     else:
         st.header("לוח בקרה")
 
-    all_cameras = db.get_all_cameras()
-    central_cameras = db.get_central_cameras()
-    active_faults = db.get_active_faults()
-    missed = sch.get_missed_scans(now, lookback_hours=8)
+    # ============ פילטרים ============
+    fc1, fc2, fc3 = st.columns([2, 2, 1])
 
-    start_key = (now - timedelta(hours=24)).strftime("%Y-%m-%d %H:00")
-    end_key = now.strftime("%Y-%m-%d %H:00")
-    recent_issues = db.get_issue_scans_in_range(start_key, end_key)
+    period_options = {
+        "היום": (now.date(), now.date()),
+        "אתמול": (now.date() - timedelta(days=1), now.date() - timedelta(days=1)),
+        "7 ימים אחרונים": (now.date() - timedelta(days=6), now.date()),
+        "30 ימים אחרונים": (now.date() - timedelta(days=29), now.date()),
+        "טווח מותאם": None,
+    }
+    selected_period = fc1.selectbox("📅 טווח", list(period_options.keys()), key="dashboard_period")
 
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("מצלמות פעילות", len(all_cameras))
-    m2.metric("קבועות", len(central_cameras))
-    m3.metric("תקולות", len(active_faults))
-    m4.metric("סריקות חסרות (8ש')", len(missed))
-    m5.metric("אירועים (24ש')", len(recent_issues))
+    if selected_period == "טווח מותאם":
+        rc1, rc2 = st.columns(2)
+        start_date = rc1.date_input("מתאריך", value=now.date() - timedelta(days=6), key="dash_start")
+        end_date = rc2.date_input("עד תאריך", value=now.date(), key="dash_end")
+    else:
+        start_date, end_date = period_options[selected_period]
 
-    if missed:
-        with st.expander(f"⚠️ פירוט {len(missed)} סריקות חסרות"):
-            data = []
-            for hk, cam in missed:
-                data.append({
-                    "שעה": hk,
-                    "שם המצלמה": cam['name'],
-                    "סוג": "קבועה" if cam['is_central'] else "מתחלפת",
-                })
-            st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
+    # סינון נציג
+    all_cams_for_filter = db.get_all_cameras()
+    all_areas_for_filter = sorted(set(c.get('area', '') for c in all_cams_for_filter if c.get('area')))
+    selected_area_filter = fc2.selectbox("🗂️ אזור", ["כל האזורים"] + all_areas_for_filter, key="dash_area")
 
-    if recent_issues:
-        st.markdown("### אירועים אחרונים בסריקות")
-        data = []
-        for s in recent_issues[:10]:
-            data.append({
-                "שעה": s['scheduled_hour'],
+    # לצורך "אחרונות 24 שעות" (למדדים חיים)
+    start_key_range = f"{start_date} 00:00"
+    end_key_range = f"{end_date} 23:59"
+
+    # ============ נתוני בסיס ============
+    all_scans = db.get_scans_in_range(start_key_range, end_key_range)
+    all_issues_scans = [s for s in all_scans if s.get('status') == 'issue']
+    all_ok_scans = [s for s in all_scans if s.get('status') != 'issue']
+
+    all_faults_list = db.get_all_faults()
+    active_faults_list = db.get_active_faults()
+
+    all_cameras_list = db.get_all_cameras()
+    total_cams = len(all_cameras_list)
+    faulty_ids = db.get_faulty_camera_ids()
+
+    # פילטור לפי אזור אם נבחר
+    if selected_area_filter != "כל האזורים":
+        # מזהה מצלמות באזור
+        area_cam_ids = {c['id'] for c in all_cameras_list if c.get('area') == selected_area_filter}
+        all_scans = [s for s in all_scans if s.get('camera_id') in area_cam_ids]
+        all_issues_scans = [s for s in all_issues_scans if s.get('camera_id') in area_cam_ids]
+        all_ok_scans = [s for s in all_ok_scans if s.get('camera_id') in area_cam_ids]
+
+    # ============ KPI - כרטיסים ============
+    st.markdown("### 📈 מדדי ביצוע")
+
+    m1, m2, m3, m4 = st.columns(4)
+    total_scans = len(all_scans)
+    ok_count = len(all_ok_scans)
+    issue_count = len(all_issues_scans)
+    compliance_pct = round((ok_count / total_scans * 100), 1) if total_scans > 0 else 0
+
+    m1.metric("סה\"כ סריקות", total_scans)
+    m2.metric("נסרקו תקין", ok_count)
+    m3.metric("נסרקו לא תקין", issue_count)
+    m4.metric("עמידה בתוכנית", f"{compliance_pct}%")
+
+    m5, m6, m7, m8 = st.columns(4)
+    m5.metric("מצלמות פעילות", total_cams)
+    m6.metric("מצלמות תקולות", len(faulty_ids))
+    m7.metric("תקלות פעילות", len(active_faults_list))
+    m8.metric("סה\"כ תקלות היסטוריות", len(all_faults_list))
+
+    st.markdown("---")
+
+    # ============ גרפים ============
+    if all_scans:
+        df_scans = pd.DataFrame(all_scans)
+        df_scans['datetime'] = pd.to_datetime(df_scans['scheduled_hour'], errors='coerce')
+        df_scans['hour'] = df_scans['datetime'].dt.hour
+        df_scans['date'] = df_scans['datetime'].dt.date
+        df_scans['status_label'] = df_scans['status'].apply(
+            lambda s: '⚠️ לא נסרק' if s == 'issue' else '✅ נסרק'
+        )
+
+        gc1, gc2 = st.columns(2)
+
+        with gc1:
+            st.markdown("#### 📊 סריקות לפי שעה")
+            hourly = df_scans.groupby(['hour', 'status_label']).size().reset_index(name='count')
+            if len(hourly) > 0:
+                fig = px.bar(
+                    hourly, x='hour', y='count', color='status_label',
+                    labels={'hour': 'שעה', 'count': 'מספר סריקות', 'status_label': 'סטטוס'},
+                    color_discrete_map={'⚠️ לא נסרק': RED, '✅ נסרק': ACCENT},
+                    height=320,
+                )
+                fig.update_layout(
+                    xaxis=dict(tickmode='linear', dtick=1),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color=TEXT),
+                    legend=dict(orientation='h', yanchor='bottom', y=1.02, x=0),
+                    margin=dict(l=20, r=20, t=20, b=20),
+                )
+                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+        with gc2:
+            st.markdown("#### 🥧 חלוקת סטטוס סריקות")
+            status_counts = df_scans['status_label'].value_counts().reset_index()
+            status_counts.columns = ['סטטוס', 'מספר']
+            fig = px.pie(
+                status_counts, names='סטטוס', values='מספר',
+                color='סטטוס',
+                color_discrete_map={'⚠️ לא נסרק': RED, '✅ נסרק': ACCENT},
+                hole=0.4,
+                height=320,
+            )
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color=TEXT),
+                legend=dict(orientation='h', yanchor='bottom', y=-0.1, x=0.5, xanchor='center'),
+                margin=dict(l=20, r=20, t=20, b=20),
+            )
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+        # ============ ביצועים לפי נציג ============
+        st.markdown("---")
+        st.markdown("#### 👥 ביצועים לפי נציג")
+        df_scans['scanned_by'] = df_scans['scanned_by'].fillna('לא ידוע').replace('', 'לא ידוע')
+        by_scanner = df_scans.groupby('scanned_by').agg(
+            total=('id', 'count'),
+            ok=('status', lambda s: (s != 'issue').sum()),
+            issues=('status', lambda s: (s == 'issue').sum()),
+        ).reset_index()
+        by_scanner['אחוז_עמידה'] = (by_scanner['ok'] / by_scanner['total'] * 100).round(1).astype(str) + '%'
+        by_scanner.columns = ['שם נציג', 'סה"כ סריקות', 'תקינות', 'לא תקינות', 'אחוז תקינות']
+        st.dataframe(by_scanner.sort_values('סה"כ סריקות', ascending=False), use_container_width=True, hide_index=True)
+
+        # ============ אירועים לפי אזור/מצלמה ============
+        if issue_count > 0:
+            st.markdown("---")
+            st.markdown("#### 🔥 מוקדים עם הכי הרבה אירועים")
+            df_issues_only = pd.DataFrame(all_issues_scans)
+            top_cams = df_issues_only.groupby('camera_name').size().reset_index(name='מספר אירועים').sort_values('מספר אירועים', ascending=False).head(10)
+            top_cams.columns = ['שם מצלמה', 'מספר אירועים']
+            st.dataframe(top_cams, use_container_width=True, hide_index=True)
+    else:
+        st.info("אין נתוני סריקה בטווח הנבחר")
+
+    # ============ פירוט אירועים אחרונים ============
+    if all_issues_scans:
+        st.markdown("---")
+        st.markdown("#### ⚠️ אירועים אחרונים בסריקות")
+        rows = []
+        for s in sorted(all_issues_scans, key=lambda x: x['scheduled_hour'], reverse=True)[:20]:
+            rows.append({
+                "שעה מתוזמנת": s['scheduled_hour'],
+                "בוצע בפועל": s.get('scanned_at', '-'),
                 "שם המצלמה": s['camera_name'],
-                "פירוט": s['event_details'] or "-",
-                "דווח ע\"י": s['scanned_by'] or "-",
+                "פירוט האירוע": s.get('event_details') or '-',
+                "דווח ע\"י": s.get('scanned_by') or '-',
             })
-        st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    if active_faults:
-        st.markdown("### מצלמות תקולות")
-        data = []
-        for f in active_faults:
-            data.append({
+    # ============ מצלמות תקולות ============
+    if active_faults_list:
+        st.markdown("---")
+        st.markdown("#### 🚫 מצלמות תקולות פעילות")
+        rows = []
+        for f in active_faults_list:
+            rows.append({
                 "שם המצלמה": f['camera_name'],
-                "תאריך ושעת התקלה": f['fault_datetime'],
-                "תיאור התקלה": f['description'],
-                "דווח ע\"י": f.get('reported_by') or "-",
+                "תאריך תקלה": f['fault_datetime'],
+                "תיאור": f['description'],
+                "דווח ע\"י": f.get('reported_by') or '-',
             })
-        st.dataframe(pd.DataFrame(data), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    # לו"ז מוטמע
-    st.markdown("### לו\"ז - השעות הקרובות")
-    hours = st.slider("שעות להצגה", 6, 48, 12)
-    schedule = sch.get_upcoming_schedule(now, hours)
-    for slot in schedule:
-        header = f"🕐 {slot['datetime'].strftime('%d/%m %H:00')} · {slot['shift']} · {len(slot['central']) + len(slot['rotating'])} מצלמות"
-        with st.expander(header):
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown(f"**קבועות ({len(slot['central'])}):**")
-                for cam in slot['central']:
-                    st.markdown(f"- {cam['name']}")
-            with c2:
-                st.markdown(f"**מתחלפות ({len(slot['rotating'])}):**")
-                for cam in slot['rotating']:
-                    st.markdown(f"- {cam['name']}")
+    # ============ ייצוא ============
+    st.markdown("---")
+    st.markdown("#### 📥 ייצוא נתונים")
+    ec1, ec2 = st.columns(2)
+
+    if all_scans:
+        df_export = pd.DataFrame(all_scans)
+        if not df_export.empty:
+            csv = df_export.to_csv(index=False).encode('utf-8-sig')
+            ec1.download_button(
+                "📥 ייצא נתוני סריקות (CSV)",
+                csv,
+                f"scans_{start_date}_to_{end_date}.csv",
+                "text/csv",
+                use_container_width=True,
+            )
+
+    if all_faults_list:
+        df_export_faults = pd.DataFrame(all_faults_list)
+        csv_faults = df_export_faults.to_csv(index=False).encode('utf-8-sig')
+        ec2.download_button(
+            "📥 ייצא נתוני תקלות (CSV)",
+            csv_faults,
+            f"faults_{start_date}_to_{end_date}.csv",
+            "text/csv",
+            use_container_width=True,
+        )
 
 
 # ============ עמוד: מצלמות ============
