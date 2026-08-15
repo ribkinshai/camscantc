@@ -260,16 +260,6 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 auth.require_login((TEXT, MUTED, BG, SURFACE))
-    # מסך כניסה
-    st.markdown(f"""
-    <div style="max-width: 420px; margin: 80px auto 20px; text-align: center;">
-        <div style="font-size: 3.5rem; margin-bottom: 12px;">🎥</div>
-        <h1 style="color: {TEXT}; margin: 0; font-size: 1.8rem;">מוקד רואה</h1>
-        <p style="color: {MUTED}; margin-top: 8px; font-size: 0.95rem;">
-            מערכת מעקב סריקות מצלמות
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
