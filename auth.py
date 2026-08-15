@@ -102,14 +102,14 @@ def _login_screen(theme_colors):
             )
 
             if submitted:
-                expected = _shared_password()
+                u = user_display[selected_key]
+                expected = _get_password_for_role(u['role'])
                 if not expected:
                     st.error("סיסמת המערכת לא הוגדרה ב-Secrets. פנה למנהל המערכת.")
                     st.stop()
                 if password != expected:
                     st.error("סיסמה שגויה")
                 else:
-                    u = user_display[selected_key]
                     st.session_state['user_id'] = u['id']
                     st.session_state['username'] = u['username']
                     st.session_state['user_name'] = u['name']
