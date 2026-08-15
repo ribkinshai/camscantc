@@ -261,43 +261,6 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 auth.require_login((TEXT, MUTED, BG, SURFACE))
 
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        with st.form("login_form"):
-            st.markdown(f"**🔒 הזן סיסמא כדי להיכנס**")
-            password = st.text_input(
-                "סיסמא",
-                type="password",
-                placeholder="הזן סיסמא כאן",
-                label_visibility="collapsed",
-            )
-            submitted = st.form_submit_button(
-                "כניסה",
-                type="primary",
-                use_container_width=True,
-            )
-
-            if submitted:
-                expected = None
-                try:
-                    expected = st.secrets.get("APP_PASSWORD")
-                except Exception:
-                    pass
-
-                if not expected:
-                    st.error("סיסמת המערכת לא הוגדרה. פנה למנהל המערכת.")
-                    st.stop()
-
-                if password == expected:
-                    st.session_state['authenticated'] = True
-                    st.rerun()
-                else:
-                    st.error("סיסמא שגויה")
-
-    st.stop()
-
-
-check_password()
 
 # ============ Sidebar ============
 def _nav_button(name, label):
