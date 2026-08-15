@@ -311,10 +311,10 @@ with st.sidebar:
 
     if _user_role == 'manager':
         # ============ ניווט מנהלת ============
-        # ראשי: רק דשבורד (מנהלת רואה תמונת מצב, לא מבצעת סריקות)
         _nav_button("לוח בקרה", "📊 לוח בקרה")
+        _nav_button("נקודות חמות", "🔥 נקודות חמות")
+        _nav_button("אתרי בנייה", "🏗️ אתרי בנייה")
 
-        # ניהול: כל שאר הכלים לניהול המערכת
         with st.expander("⚙️ ניהול מערכת", expanded=False):
             _nav_button("תקלות", "⚠️ תקלות")
             _nav_button("מפה", "🗺️ מפה")
@@ -323,8 +323,9 @@ with st.sidebar:
             _nav_button("הגדרות", "⚙️ הגדרות")
     else:
         # ============ ניווט מוקדן ============
-        # ראשי: עבודה שוטפת
         _nav_button("סריקה שוטפת", "✅ סריקה שוטפת")
+        _nav_button("נקודות חמות", "🔥 נקודות חמות")
+        _nav_button("אתרי בנייה", "🏗️ אתרי בנייה")
         _nav_button("תקלות", "⚠️ תקלות")
         _nav_button("מפה", "🗺️ מפה")
 
@@ -857,6 +858,319 @@ elif page == "לוח בקרה":
 
 
 # ============ עמוד: מצלמות ============
+elif page == "נקודות חמות":
+    _is_manager_hs = st.session_state.get('user_role') == 'manager'
+    st.header("🔥 נקודות חמות")
+
+    if _is_manager_hs:
+        st.caption("ניהול נקודות חמות - הוספה, עריכה ומחיקה")
+    else:
+        st.caption("נקודות חמות במוקד - צפייה בלבד")
+
+    all_hotspots = db.get_all_hotspots(active_only=True)
+
+    # ---- טופס עריכה/הוספה למנהלת ----
+    if _is_manager_hs:
+        editing_id = st.session_state.get('editing_hotspot_id')
+        adding_new = st.session_state.get('adding_new_hotspot', False)
+
+        if editing_id or adding_new:
+            hs = next((h for h in all_hotspots if h['id'] == editing_id), None) if editing_id else {}
+            title = f"✏️ עריכת נקודה חמה: {hs.get('name', '')}" if editing_id else "➕ הוספת נקודה חמה חדשה"
+
+            st.markdown(f"### {title}")
+
+            with st.form(f"hotspot_form_{editing_id or 'new'}", clear_on_submit=False):
+                fc1, fc2 = st.columns(2)
+                name = fc1.text_input("שם הנקודה החמה *", value=hs.get('name', ''))
+                area = fc2.text_input("אזור", value=hs.get('area', ''))
+
+                priority = st.selectbox(
+                    "עדיפות",
+                    ['high', 'medium', 'low'],
+                    format_func=lambda x: {'high': '🔴 גבוהה', 'medium': '🟠 בינונית', 'low': '🟢 נמוכה'}[x],
+                    index=['high', 'medium', 'low'].index(hs.get('priority', 'medium')),
+                )
+
+                watching_for = st.text_area(
+                    "מה מחפשים במקום?",
+                    value=hs.get('watching_for', ''),
+                    placeholder="ונדליזם, רעש, התקהלות...",
+                    height=80,
+                )
+
+                # שעות פעילות
+                st.markdown("**⏰ שעות פעילות**")
+                st.caption("סמן את חלונות הזמן בהם הנקודה החמה פעילה במיוחד")
+                time_windows = [
+                    ("07:00-09:00", "בוקר מוקדם"),
+                    ("09:00-11:00", "עומס בוקר"),
+                    ("11:00-13:00", "צהריים"),
+                    ("13:00-16:00", "אחר צהריים"),
+                    ("16:00-20:00", "אחרי הצהריים"),
+                    ("20:00-23:00", "ערב"),
+                    ("23:00-05:00", "לילה"),
+                    ("05:00-07:00", "שחר"),
+                ]
+                current_windows = set(hs.get('active_hours', []))
+                selected_windows = []
+                tc1, tc2 = st.columns(2)
+                for i, (window, label) in enumerate(time_windows):
+                    col = tc1 if i % 2 == 0 else tc2
+                    if col.checkbox(f"{window} · {label}", value=window in current_windows, key=f"win_{editing_id}_{window}"):
+                        selected_windows.append(window)
+
+                # שיוך מצלמות
+                st.markdown("**🎥 שיוך מצלמות**")
+                cams_for_hs = db.get_all_cameras()
+                cam_display = {f"{c['name']} ({c.get('area', '') or 'לא ידוע'})": c['id'] for c in cams_for_hs}
+                current_cam_ids = set(hs.get('camera_ids', []))
+                current_cam_labels = [label for label, cid in cam_display.items() if cid in current_cam_ids]
+
+                selected_cam_labels = st.multiselect(
+                    "בחר מצלמות משויכות",
+                    list(cam_display.keys()),
+                    default=current_cam_labels,
+                )
+                selected_cam_ids = [cam_display[l] for l in selected_cam_labels]
+
+                notes = st.text_area("הערות", value=hs.get('notes', ''), height=60)
+
+                bc1, bc2 = st.columns(2)
+                save = bc1.form_submit_button("💾 שמור", type="primary", use_container_width=True)
+                cancel = bc2.form_submit_button("↩️ ביטול", use_container_width=True)
+
+                if save:
+                    if not name.strip():
+                        st.error("יש למלא שם")
+                    else:
+                        if editing_id:
+                            db.update_hotspot(
+                                editing_id,
+                                name=name.strip(), area=area.strip(),
+                                priority=priority, watching_for=watching_for.strip(),
+                                notes=notes.strip(),
+                                active_hours=selected_windows,
+                                camera_ids=selected_cam_ids,
+                            )
+                            st.success("עודכן בהצלחה")
+                        else:
+                            new_id = db.add_hotspot(
+                                name=name.strip(), area=area.strip(),
+                                priority=priority, watching_for=watching_for.strip(),
+                                notes=notes.strip(),
+                                active_hours=selected_windows,
+                                camera_ids=selected_cam_ids,
+                            )
+                            if new_id:
+                                st.success("נוסף בהצלחה")
+                            else:
+                                st.error("שם כבר קיים במערכת")
+                        st.session_state.pop('editing_hotspot_id', None)
+                        st.session_state.pop('adding_new_hotspot', None)
+                        st.rerun()
+
+                if cancel:
+                    st.session_state.pop('editing_hotspot_id', None)
+                    st.session_state.pop('adding_new_hotspot', None)
+                    st.rerun()
+
+            st.stop()
+
+        # כפתור הוספה
+        if st.button("➕ הוסף נקודה חמה חדשה", type="primary"):
+            st.session_state['adding_new_hotspot'] = True
+            st.rerun()
+
+    # ---- רשימת נקודות חמות (מוצג לכולם) ----
+    if not all_hotspots:
+        st.info("אין נקודות חמות מוגדרות במערכת עדיין")
+    else:
+        st.markdown(f"### 📋 נקודות חמות פעילות · {len(all_hotspots)}")
+
+        priority_colors = {'high': RED, 'medium': AMBER, 'low': ACCENT}
+        priority_labels = {'high': 'גבוהה', 'medium': 'בינונית', 'low': 'נמוכה'}
+        priority_icons = {'high': '🔴', 'medium': '🟠', 'low': '🟢'}
+
+        for hs in all_hotspots:
+            p = hs.get('priority', 'medium')
+            hours_display = ' · '.join(hs.get('active_hours', [])) if hs.get('active_hours') else 'לא הוגדר'
+            cams_count = len(hs.get('camera_ids', []))
+
+            st.markdown(f"""
+                <div style="background-color: {SURFACE2}; border-right: 4px solid {priority_colors[p]};
+                            border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div style="flex: 1;">
+                            <div style="font-size: 1.15rem; font-weight: 600; color: {TEXT};">
+                                {priority_icons[p]} {hs['name']}
+                            </div>
+                            <div style="font-size: 0.85rem; color: {MUTED}; margin-top: 4px;">
+                                🗂️ {hs.get('area', 'לא הוגדר')} · עדיפות: {priority_labels[p]} · {cams_count} מצלמות משויכות
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 10px; font-size: 0.9rem; color: {TEXT};">
+                        <b>⏰ שעות פעילות:</b> {hours_display}
+                    </div>
+                    <div style="margin-top: 6px; font-size: 0.9rem; color: {TEXT};">
+                        <b>👁️ מה מחפשים:</b> {hs.get('watching_for') or 'לא הוגדר'}
+                    </div>
+                    {f'<div style="margin-top: 6px; font-size: 0.85rem; color: {MUTED};"><b>📝 הערות:</b> {hs.get("notes")}</div>' if hs.get('notes') else ''}
+                </div>
+            """, unsafe_allow_html=True)
+
+            if _is_manager_hs:
+                ac1, ac2, ac3 = st.columns([1, 1, 4])
+                if ac1.button("✏️ ערוך", key=f"edit_hs_{hs['id']}"):
+                    st.session_state['editing_hotspot_id'] = hs['id']
+                    st.rerun()
+                if ac2.button("🗑️ הסר", key=f"del_hs_{hs['id']}"):
+                    db.delete_hotspot(hs['id'])
+                    st.rerun()
+
+
+elif page == "אתרי בנייה":
+    _is_manager_cs = st.session_state.get('user_role') == 'manager'
+    st.header("🏗️ אתרי בנייה")
+
+    if _is_manager_cs:
+        st.caption("ניהול אתרי בנייה - הוספה, עריכה ומחיקה")
+    else:
+        st.caption("אתרי בנייה פעילים - צפייה בלבד")
+
+    all_sites = db.get_all_construction_sites(active_only=True)
+
+    # ---- טופס עריכה/הוספה למנהלת ----
+    if _is_manager_cs:
+        editing_id = st.session_state.get('editing_site_id')
+        adding_new = st.session_state.get('adding_new_site', False)
+
+        if editing_id or adding_new:
+            site = next((s for s in all_sites if s['id'] == editing_id), None) if editing_id else {}
+            title = f"✏️ עריכת אתר בנייה: {site.get('name', '')}" if editing_id else "➕ הוספת אתר בנייה חדש"
+
+            st.markdown(f"### {title}")
+
+            with st.form(f"site_form_{editing_id or 'new'}", clear_on_submit=False):
+                name = st.text_input("שם האתר *", value=site.get('name', ''))
+                address = st.text_input("כתובת", value=site.get('address', ''))
+
+                sc1, sc2 = st.columns(2)
+                start_date_val = site.get('start_date', '')
+                end_date_val = site.get('end_date', '')
+                start_date_input = sc1.text_input("תאריך התחלה (YYYY-MM-DD)", value=start_date_val or '')
+                end_date_input = sc2.text_input("תאריך סיום צפוי (YYYY-MM-DD)", value=end_date_val or '')
+
+                # שיוך מצלמות
+                st.markdown("**🎥 מצלמות משויכות לאתר**")
+                cams_for_site = db.get_all_cameras()
+                cam_display = {f"{c['name']} ({c.get('area', '') or 'לא ידוע'})": c['id'] for c in cams_for_site}
+                current_cam_ids = set(site.get('camera_ids', []))
+                current_cam_labels = [label for label, cid in cam_display.items() if cid in current_cam_ids]
+
+                selected_cam_labels = st.multiselect(
+                    "בחר מצלמות שרואות את האתר",
+                    list(cam_display.keys()),
+                    default=current_cam_labels,
+                )
+                selected_cam_ids = [cam_display[l] for l in selected_cam_labels]
+
+                notes = st.text_area(
+                    "הערות",
+                    value=site.get('notes', ''),
+                    placeholder="דגשים מיוחדים, שעות עבודה, סיכונים...",
+                    height=80,
+                )
+
+                bc1, bc2 = st.columns(2)
+                save = bc1.form_submit_button("💾 שמור", type="primary", use_container_width=True)
+                cancel = bc2.form_submit_button("↩️ ביטול", use_container_width=True)
+
+                if save:
+                    if not name.strip():
+                        st.error("יש למלא שם")
+                    else:
+                        if editing_id:
+                            db.update_construction_site(
+                                editing_id,
+                                name=name.strip(), address=address.strip(),
+                                notes=notes.strip(),
+                                start_date=start_date_input.strip() or None,
+                                end_date=end_date_input.strip() or None,
+                                camera_ids=selected_cam_ids,
+                            )
+                            st.success("עודכן בהצלחה")
+                        else:
+                            new_id = db.add_construction_site(
+                                name=name.strip(), address=address.strip(),
+                                notes=notes.strip(),
+                                camera_ids=selected_cam_ids,
+                            )
+                            if new_id and (start_date_input.strip() or end_date_input.strip()):
+                                db.update_construction_site(
+                                    new_id,
+                                    start_date=start_date_input.strip() or None,
+                                    end_date=end_date_input.strip() or None,
+                                )
+                            if new_id:
+                                st.success("נוסף בהצלחה")
+                            else:
+                                st.error("שם כבר קיים במערכת")
+                        st.session_state.pop('editing_site_id', None)
+                        st.session_state.pop('adding_new_site', None)
+                        st.rerun()
+
+                if cancel:
+                    st.session_state.pop('editing_site_id', None)
+                    st.session_state.pop('adding_new_site', None)
+                    st.rerun()
+
+            st.stop()
+
+        # כפתור הוספה
+        if st.button("➕ הוסף אתר בנייה חדש", type="primary"):
+            st.session_state['adding_new_site'] = True
+            st.rerun()
+
+    # ---- רשימת אתרי בנייה ----
+    if not all_sites:
+        st.info("אין אתרי בנייה מוגדרים במערכת עדיין")
+    else:
+        st.markdown(f"### 📋 אתרי בנייה פעילים · {len(all_sites)}")
+
+        for site in all_sites:
+            cams_count = len(site.get('camera_ids', []))
+            date_range = ''
+            if site.get('start_date') and site.get('end_date'):
+                date_range = f"{site['start_date']} → {site['end_date']}"
+            elif site.get('start_date'):
+                date_range = f"החל מ-{site['start_date']}"
+            elif site.get('end_date'):
+                date_range = f"עד {site['end_date']}"
+
+            st.markdown(f"""
+                <div style="background-color: {SURFACE2}; border-right: 4px solid {AMBER};
+                            border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;">
+                    <div style="font-size: 1.15rem; font-weight: 600; color: {TEXT};">
+                        🏗️ {site['name']}
+                    </div>
+                    <div style="font-size: 0.85rem; color: {MUTED}; margin-top: 4px;">
+                        {f'📍 {site.get("address")} · ' if site.get('address') else ''}{cams_count} מצלמות משויכות
+                        {f' · 📅 {date_range}' if date_range else ''}
+                    </div>
+                    {f'<div style="margin-top: 8px; font-size: 0.9rem; color: {TEXT};"><b>📝 הערות:</b> {site.get("notes")}</div>' if site.get('notes') else ''}
+                </div>
+            """, unsafe_allow_html=True)
+
+            if _is_manager_cs:
+                ac1, ac2, ac3 = st.columns([1, 1, 4])
+                if ac1.button("✏️ ערוך", key=f"edit_site_{site['id']}"):
+                    st.session_state['editing_site_id'] = site['id']
+                    st.rerun()
+                if ac2.button("🗑️ הסר", key=f"del_site_{site['id']}"):
+                    db.delete_construction_site(site['id'])
+                    st.rerun()
 elif page == "מפה":
     st.header("🗺️ מפת מצלמות טירת כרמל")
 
