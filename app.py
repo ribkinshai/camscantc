@@ -614,14 +614,6 @@ if page == "סריקה שוטפת":
         for cam in filtered_rotating:
             render_row(cam, "r")
 
-    st.markdown("---")
-    if not search.strip():
-        if st.button("סמן את כל הנותרות כנסרקו", type="secondary"):
-            for cam in central + rotating:
-                if cam['id'] not in scanned_now:
-                    db.mark_scan(cam['id'], current_hour_key, scanner_name, status='ok')
-            st.rerun()
-
 
 # ============ עמוד: לוח בקרה (כולל לו"ז) ============
 elif page == "לוח בקרה":
