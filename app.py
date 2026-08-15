@@ -42,7 +42,7 @@ def _camera_map_position(cam, area_coords):
     return None
 import database as db
 import scheduler as sch
-
+import auth
 
 def now_il():
     """שעה נוכחית לפי שעון ישראל"""
@@ -259,11 +259,7 @@ st.markdown(f"""
     }}
 </style>
 """, unsafe_allow_html=True)
-# ============ הגנת סיסמא ============
-def check_password():
-    """שער סיסמא. אם לא מאומת - מציג מסך כניסה ועוצר."""
-    if st.session_state.get('authenticated'):
-        return
+auth.require_login((TEXT, MUTED, BG, SURFACE))
 
     # מסך כניסה
     st.markdown(f"""
@@ -406,9 +402,20 @@ with st.sidebar:
     </script>
     """, height=60)
     st.sidebar.markdown("")
+user_info = auth.current_user()
+if user_info:
+    role_label = 'מנהלת' if user_info['role'] == 'manager' else 'מוקדן'
+    st.sidebar.markdown(f"""
+    <div style="background-color: {SURFACE2}; border: 1px solid {BORDER};
+                border-radius: 6px; padding: 8px 12px; margin-top: 8px;
+                font-size: 0.85rem;">
+        <div style="color: {MUTED}; font-size: 0.75rem;">מחובר כ:</div>
+        <div style="color: {TEXT}; font-weight: 500;">👤 {user_info['name']}</div>
+        <div style="color: {MUTED}; font-size: 0.75rem;">{role_label}</div>
+    </div>
+    """, unsafe_allow_html=True)
 if st.sidebar.button("🔒 יציאה מהמערכת", use_container_width=True, key="logout_btn"):
-    st.session_state.pop('authenticated', None)
-    st.session_state.pop('scanner_name', None)
+    auth.logout()
     st.rerun()
 
 page = st.session_state['current_page']
@@ -420,7 +427,9 @@ current_hour_key = sch.hour_key(current_hour)
 # ============ עמוד: סריקה שוטפת ============
 if page == "סריקה שוטפת":
 
-    # ---- כרטיס נציג פעיל ----
+    # ---- כרטיס נציג פעיל - נטען אוטומטית מהמשתמש המחובר ----
+    if not st.session_state.get('scanner_name'):
+        st.session_state['scanner_name'] = st.session_state.get('user_name', '')
     scanner_name = st.session_state.get('scanner_name', '')
     edit_mode = st.session_state.get('editing_scanner', False)
 
