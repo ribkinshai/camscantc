@@ -329,8 +329,8 @@ def init_db():
         cursor.execute("SELECT COUNT(*) as c FROM users")
         if cursor.fetchone()['c'] == 0:
             default_users = [
-                ('admin', 'מנהלת המוקד', 'manager'),
-                ('shai', 'שי כהן', 'manager'),
+                ('admin', 'מיטל מנהלת המוקד', 'manager'),
+                ('shai', 'מנהל 2', 'manager'),
                 ('operator1', 'מוקדן 1', 'operator'),
                 ('operator2', 'מוקדן 2', 'operator'),
                 ('operator3', 'מוקדן 3', 'operator'),
