@@ -63,7 +63,15 @@ st.set_page_config(
 if 'theme' not in st.session_state:
     st.session_state['theme'] = 'light'
 if 'current_page' not in st.session_state:
-    st.session_state['current_page'] = "סריקה שוטפת"
+    # דף ברירת המחדל לפי תפקיד: מנהלת -> דשבורד, מוקדן -> סריקה שוטפת
+    if st.session_state.get('user_role') == 'manager':
+        st.session_state['current_page'] = "לוח בקרה"
+    else:
+        st.session_state['current_page'] = "סריקה שוטפת"
+
+# אם מנהלת נכנסת ובטעות עמוד הסריקה השוטפת נשמר בסשן - להעביר לדשבורד
+if st.session_state.get('user_role') == 'manager' and st.session_state.get('current_page') == "סריקה שוטפת":
+    st.session_state['current_page'] = "לוח בקרה"
 
 is_dark = st.session_state['theme'] == 'dark'
 
@@ -298,15 +306,28 @@ with st.sidebar:
 
     st.markdown("---")
 
-    _nav_button("סריקה שוטפת", "✅ סריקה שוטפת")
-    _nav_button("לוח בקרה", "📊 לוח בקרה")
-    _nav_button("תקלות", "⚠️ תקלות")
-    _nav_button("מפה", "🗺️ מפה")
+    _user_role = st.session_state.get('user_role', 'operator')
 
-    with st.expander("⚙️ ניהול"):
-        _nav_button("מצלמות", "🎥 מצלמות")
-        _nav_button("היסטוריה", "📈 היסטוריה")
-        _nav_button("הגדרות", "⚙️ הגדרות")
+    if _user_role == 'manager':
+        # ============ ניווט מנהלת ============
+        # ראשי: רק דשבורד (מנהלת רואה תמונת מצב, לא מבצעת סריקות)
+        _nav_button("לוח בקרה", "📊 לוח בקרה")
+
+        # ניהול: כל שאר הכלים לניהול המערכת
+        with st.expander("⚙️ ניהול מערכת", expanded=False):
+            _nav_button("תקלות", "⚠️ תקלות")
+            _nav_button("מפה", "🗺️ מפה")
+            _nav_button("מצלמות", "🎥 מצלמות")
+            _nav_button("היסטוריה", "📈 היסטוריה")
+            _nav_button("הגדרות", "⚙️ הגדרות")
+    else:
+        # ============ ניווט מוקדן ============
+        # ראשי: עבודה שוטפת
+        _nav_button("סריקה שוטפת", "✅ סריקה שוטפת")
+        _nav_button("תקלות", "⚠️ תקלות")
+        _nav_button("מפה", "🗺️ מפה")
+
+        # אין תת-תפריט ניהול למוקדן - הוא לא צריך את זה
 
     now = now_il()
     st.markdown(
@@ -378,6 +399,11 @@ current_hour_key = sch.hour_key(current_hour)
 
 # ============ עמוד: סריקה שוטפת ============
 if page == "סריקה שוטפת":
+    # ============ הגנה: מסך זה למוקדנים בלבד ============
+    if st.session_state.get('user_role') == 'manager':
+        st.warning("⚠️ מסך זה מיועד למוקדנים בלבד. מנהלת עוקבת דרך לוח הבקרה.")
+        st.info("💡 עבור ל-**📊 לוח בקרה** בסרגל הצד לצפייה בסטטוס הסריקות של המשמרת.")
+        st.stop()
 
     # ---- כרטיס נציג פעיל - נטען אוטומטית מהמשתמש המחובר ----
     if not st.session_state.get('scanner_name'):
@@ -617,7 +643,12 @@ if page == "סריקה שוטפת":
 
 # ============ עמוד: לוח בקרה (כולל לו"ז) ============
 elif page == "לוח בקרה":
-    st.header("לוח בקרה")
+    _is_manager = st.session_state.get('user_role') == 'manager'
+    if _is_manager:
+        st.header("📊 דשבורד מנהלת · מוקד 106")
+        st.caption(f"תמונת מצב חיה של פעילות המוקד · מחוברת: {st.session_state.get('user_name', '')}")
+    else:
+        st.header("לוח בקרה")
 
     all_cameras = db.get_all_cameras()
     central_cameras = db.get_central_cameras()
