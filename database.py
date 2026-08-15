@@ -340,7 +340,48 @@ def init_db():
                 "INSERT INTO users (username, name, role) VALUES (?, ?, ?)",
                 default_users,
             )
+# ============ Seed נקודות חמות ברירת מחדל ============
+        cursor.execute("SELECT COUNT(*) as c FROM hotspots")
+        if cursor.fetchone()['c'] == 0:
+            default_hotspots = [
+                ('סקייטפארק', 'סקייטפארק', 'high',
+                 '["09:00-11:00","20:00-23:00","23:00-05:00"]',
+                 'ונדליזם, שוטטות, קטטות, רעש',
+                 'נקודה חמה לכל שעות היום, במיוחד בערב ובלילה'),
+                ('גן נחום', 'גן נחום', 'high',
+                 '["09:00-11:00","16:00-20:00","23:00-05:00"]',
+                 'ונדליזם, התקהלות, פעילות חריגה',
+                 'גן פעיל - דגש על שעות עומס וערב'),
+                ('גן יצחק שמיר', 'גן יצחק שמיר', 'high',
+                 '["09:00-11:00","16:00-20:00"]',
+                 'ונדליזם, פגיעה במתקנים, התנהגות מסכנת',
+                 ''),
+                ('כיכר החותרים', 'נוף ים', 'high',
+                 '["09:00-11:00","20:00-23:00"]',
+                 'התקהלות, שוטטות, אירועים כלליים',
+                 ''),
+                ('בניין העירייה', 'בניין העירייה', 'high',
+                 '["09:00-11:00","13:00-16:00","23:00-05:00"]',
+                 'פעילות חשודה, פריצות, ונדליזם',
+                 'בדגש על שעות סגירה ולילה'),
+            ]
+            cursor.executemany(
+                "INSERT INTO hotspots (name, area, priority, active_hours_json, watching_for, notes) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                default_hotspots,
+            )
 
+        # ============ Seed אתרי בנייה ברירת מחדל ============
+        cursor.execute("SELECT COUNT(*) as c FROM construction_sites")
+        if cursor.fetchone()['c'] == 0:
+            default_sites = [
+                ('בית הספר החדש בנוף ים', 'שכונת נוף ים', 'active',
+                 'בנייה של בית ספר חדש - יש לעקוב אחר פעילות אחרי שעות עבודה, פריצות, גניבת ציוד'),
+            ]
+            cursor.executemany(
+                "INSERT INTO construction_sites (name, address, notes) VALUES (?, ?, ?)",
+                [(name, addr, notes) for name, addr, _, notes in default_sites],
+            )
         conn.commit()
 
 
