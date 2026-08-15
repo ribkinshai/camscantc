@@ -990,7 +990,18 @@ def get_faulty_camera_ids():
 
 # ==================== סריקות ישנות (v1) - נשאר לתאימות ====================
 def mark_scan(camera_id, scheduled_hour, scanned_by="", status="ok", event_details=None):
+    """
+    מסמן סריקה כבוצעה. **נעילה מעריכה** - אם הסריקה כבר סומנה בעבר, לא ניתן לשנות אותה.
+    זה מבטיח שהתיעוד של השעה המדויקת יישאר לצורך מעקב אמיתי.
+    """
     with get_conn() as conn:
+        existing = conn.execute(
+            "SELECT scanned_at FROM scans WHERE camera_id = ? AND scheduled_hour = ? AND scanned_at IS NOT NULL",
+            (camera_id, scheduled_hour),
+        ).fetchone()
+        if existing:
+            # כבר סומן - אין להחליף (נעילה)
+            return False
         conn.execute(
             "INSERT INTO scans (camera_id, scheduled_hour, scanned_at, scanned_by, status, event_details) "
             "VALUES (?, ?, ?, ?, ?, ?) "
@@ -1000,15 +1011,16 @@ def mark_scan(camera_id, scheduled_hour, scanned_by="", status="ok", event_detai
             (camera_id, scheduled_hour, _now_iso(), scanned_by, status, event_details),
         )
         conn.commit()
+        return True
 
 
 def unmark_scan(camera_id, scheduled_hour):
-    with get_conn() as conn:
-        conn.execute(
-            "DELETE FROM scans WHERE camera_id = ? AND scheduled_hour = ?",
-            (camera_id, scheduled_hour),
-        )
-        conn.commit()
+    """
+    ⚠️ נעילת מעקב - סריקה שסומנה לא ניתנת לביטול.
+    זה מבטיח מעקב אמיתי אחרי מה בוצע ומתי.
+    """
+    # ביודעים - לא עושה כלום. זה נעילה מכוונת.
+    return False
 
 
 def get_scans_for_hour(scheduled_hour):
