@@ -6,9 +6,21 @@ import streamlit as st
 import database as db
 
 
-def _shared_password():
-    """מחזיר את הסיסמה המשותפת מ-Streamlit Secrets"""
+def _get_password_for_role(role):
+    """
+    מחזיר את הסיסמה המתאימה לתפקיד מ-Streamlit Secrets.
+    - מנהלת: MANAGER_PASSWORD (או APP_PASSWORD אם לא מוגדר)
+    - מוקדן: OPERATOR_PASSWORD (או APP_PASSWORD אם לא מוגדר)
+    """
     try:
+        if role == 'manager':
+            pw = st.secrets.get("MANAGER_PASSWORD")
+            if pw:
+                return pw
+        else:
+            pw = st.secrets.get("OPERATOR_PASSWORD")
+            if pw:
+                return pw
         return st.secrets.get("APP_PASSWORD")
     except Exception:
         return None
