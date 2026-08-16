@@ -709,9 +709,24 @@ if page == "סריקה שוטפת":
             st.caption(f"מצלמה: **{cam_name}** · שעה: {current_hour_key}")
 
             with st.form(f"not_scanned_form_{cam_id}", clear_on_submit=False):
+                st.markdown("**🏷️ סוג האירוע:**")
+                category_options = {
+                    '🛡️ בטחון (אלימות, ונדליזם, פעילות חשודה)': 'security',
+                    '🗑️ גזם וגרוטאות (השלכות, פסולת, ניקיון)': 'dumping',
+                    '❓ אחר': 'other',
+                }
+                selected_cat_label = st.radio(
+                    "בחר סוג",
+                    list(category_options.keys()),
+                    label_visibility="collapsed",
+                    key=f"cat_radio_{cam_id}",
+                )
+                selected_category = category_options[selected_cat_label]
+
+                st.markdown("**📝 פירוט:**")
                 reason = st.text_area(
-                    "סיבה", height=120,
-                    placeholder="הקלד כאן את הסיבה...",
+                    "סיבה", height=100,
+                    placeholder="הקלד כאן את הסיבה/פירוט האירוע...",
                     label_visibility="collapsed",
                 )
                 bc1, bc2 = st.columns(2)
@@ -720,12 +735,14 @@ if page == "סריקה שוטפת":
 
                 if save:
                     if not reason.strip():
-                        st.error("יש למלא סיבה")
+                        st.error("יש למלא פירוט")
                     else:
                         db.mark_scan(
                             cam_id, current_hour_key,
                             st.session_state.get('scanner_name', ''),
-                            status='issue', event_details=reason.strip(),
+                            status='issue',
+                            event_details=reason.strip(),
+                            event_category=selected_category,
                         )
                         st.session_state.pop('issue_cam_id', None)
                         st.session_state.pop('issue_cam_name', None)
@@ -1297,7 +1314,23 @@ elif page == "לוח בקרה":
             'שבור', 'שבורה', 'חסום', 'תקלת חשמל', 'עמוד', 'שלט',
         ]
 
-        def categorize_event(text):
+        def categorize_event(scan_item):
+            """
+            סיווג משולב: קודם בודק אם הנציג סימן קטגוריה במפורש,
+            אחרת נופל אחורה לזיהוי אוטומטי לפי מילות מפתח (עבור סריקות ישנות).
+            """
+            explicit_cat = scan_item.get('event_category')
+            if explicit_cat == 'security':
+                return 'בטחון'
+            if explicit_cat == 'dumping':
+                return 'גזם/גרוטאות'
+            if explicit_cat == 'safety':
+                return 'בטיחות'
+            if explicit_cat == 'other':
+                return 'אחר'
+
+            # fallback לזיהוי אוטומטי לסריקות ישנות שאין להן קטגוריה
+            text = scan_item.get('event_details', '')
             if not text or str(text).strip() == '-':
                 return 'ללא פירוט'
             text_str = str(text).lower()
@@ -1306,7 +1339,7 @@ elif page == "לוח בקרה":
                     return 'בטחון'
             for kw in dumping_keywords:
                 if kw in text_str:
-                    return 'השלכות/פסולת'
+                    return 'גזם/גרוטאות'
             for kw in safety_keywords:
                 if kw in text_str:
                     return 'בטיחות'
@@ -1315,7 +1348,7 @@ elif page == "לוח בקרה":
         # החלת הסיווג על כל האירועים
         categorized = []
         for s in all_issues_scans:
-            cat = categorize_event(s.get('event_details', ''))
+            cat = categorize_event(s)
             item = dict(s)
             item['category'] = cat
             categorized.append(item)
@@ -1325,19 +1358,19 @@ elif page == "לוח בקרה":
 
         # ---- ארבעה מדדים מרכזיים ----
         security_count = int(counts.get('בטחון', 0))
-        dumping_count = int(counts.get('השלכות/פסולת', 0))
+        dumping_count = int(counts.get('גזם/גרוטאות', 0))
         safety_count = int(counts.get('בטיחות', 0))
         other_count = int(counts.get('אחר', 0)) + int(counts.get('ללא פירוט', 0))
 
         cm1, cm2, cm3, cm4 = st.columns(4)
         cm1.metric("🛡️ אירועי בטחון", security_count)
-        cm2.metric("🗑️ השלכות פסולת/גזם", dumping_count)
+        cm2.metric("🗑️ גזם וגרוטאות", dumping_count)
         cm3.metric("⚠️ מפגעי בטיחות", safety_count)
         cm4.metric("❓ אחר / לא מסווג", other_count)
 
         color_map_cat = {
             'בטחון': '#dc2626',
-            'השלכות/פסולת': '#d97706',
+            'גזם/גרוטאות': '#d97706',
             'בטיחות': '#ca8a04',
             'אחר': '#94a3b8',
             'ללא פירוט': '#64748b',
@@ -1402,12 +1435,12 @@ elif page == "לוח בקרה":
         ).reset_index()
 
         # וידוא שכל העמודות קיימות
-        for col in ['בטחון', 'השלכות/פסולת', 'בטיחות', 'אחר', 'ללא פירוט']:
+        for col in ['בטחון', 'גזם/גרוטאות', 'בטיחות', 'אחר', 'ללא פירוט']:
             if col not in pivot_scanner_cat.columns:
                 pivot_scanner_cat[col] = 0
 
         pivot_scanner_cat['סה"כ'] = (
-            pivot_scanner_cat['בטחון'] + pivot_scanner_cat['השלכות/פסולת'] +
+            pivot_scanner_cat['בטחון'] + pivot_scanner_cat['גזם/גרוטאות'] +
             pivot_scanner_cat['בטיחות'] + pivot_scanner_cat['אחר'] +
             pivot_scanner_cat.get('ללא פירוט', 0)
         )
@@ -1415,7 +1448,7 @@ elif page == "לוח בקרה":
         pivot_scanner_cat = pivot_scanner_cat.rename(columns={'scanner_name': 'נציג'})
 
         # סידור עמודות בסדר הגיוני
-        cols_order = ['נציג', 'בטחון', 'השלכות/פסולת', 'בטיחות', 'אחר']
+        cols_order = ['נציג', 'בטחון', 'גזם/גרוטאות', 'בטיחות', 'אחר']
         if 'ללא פירוט' in pivot_scanner_cat.columns:
             cols_order.append('ללא פירוט')
         cols_order.append('סה"כ')
@@ -1425,7 +1458,7 @@ elif page == "לוח בקרה":
 
         # ---- פירוט אירועים לפי קטגוריה ----
         with st.expander("📋 פירוט אירועים לפי סיווג", expanded=False):
-            for cat_name in ['בטחון', 'השלכות/פסולת', 'בטיחות', 'אחר', 'ללא פירוט']:
+            for cat_name in ['בטחון', 'גזם/גרוטאות', 'בטיחות', 'אחר', 'ללא פירוט']:
                 cat_items = [s for s in categorized if s['category'] == cat_name]
                 if cat_items:
                     st.markdown(f"### {cat_name} · {len(cat_items)} אירועים")
