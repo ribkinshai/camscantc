@@ -247,7 +247,33 @@ st.markdown(f"""
 
 auth.require_login((TEXT, MUTED, BG, SURFACE))
 
+# ============ אוטו-רענון גלובלי ============
+# חייב להיקרא ברמת הטופ בכל rerun עם אותו key - אחרת נכשל
+if _HAS_AUTOREFRESH:
+    # ברירת מחדל: כבוי (פעם בשעה)
+    _refresh_interval_ms = 60 * 60 * 1000
 
+    _in_form = (
+        st.session_state.get('issue_cam_id')
+        or st.session_state.get('editing_scanner')
+        or not st.session_state.get('scanner_name')
+    )
+
+    _on_scan_page = (
+        st.session_state.get('current_page') == 'סריקה שוטפת'
+        and st.session_state.get('user_role') != 'manager'
+    )
+
+    if _on_scan_page and not _in_form:
+        _refresh_interval_ms = 15 * 1000  # 15 שניות
+
+    _refresh_count = st_autorefresh(
+        interval=_refresh_interval_ms,
+        limit=None,
+        key="global_page_refresh",
+    )
+else:
+    _refresh_count = 0
 # ============ Sidebar ============
 def _nav_button(name, label):
     is_current = st.session_state['current_page'] == name
@@ -608,21 +634,11 @@ current_hour_key = sch.hour_key(current_hour)
 
 # ============ עמוד: סריקה שוטפת ============
 if page == "סריקה שוטפת":
-    # ============ רענון אוטומטי כל 20 שניות (מסתנכרן עם השעה בפועל) ============
-    # רק אם המוקדן לא באמצע מילוי טופס - כדי לא לאבד קלט
-    _is_editing_form = (
-        st.session_state.get('issue_cam_id') or
-        st.session_state.get('editing_scanner') or
-        not st.session_state.get('scanner_name')
-    )
-    if not _is_editing_form:
-        if _HAS_AUTOREFRESH:
-            st_autorefresh(interval=20 * 1000, key="scan_page_autorefresh")
-        else:
-            st.markdown(
-                '<meta http-equiv="refresh" content="30">',
-                unsafe_allow_html=True,
-            )
+    # אינדיקטור מצב האוטו-רענון (עוזר לוודא שרץ)
+    if _HAS_AUTOREFRESH and _refresh_count > 0:
+        st.caption(f"🔄 מתעדכן אוטומטית · רענון #{_refresh_count} · פעם ב-15 שניות")
+    elif not _HAS_AUTOREFRESH:
+        st.caption("⚠️ streamlit-autorefresh לא הותקן - הדף לא מתעדכן אוטומטית")
 
     # ============ הגנה: מסך זה למוקדנים בלבד ============
     if st.session_state.get('user_role') == 'manager':
