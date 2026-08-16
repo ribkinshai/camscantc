@@ -1555,7 +1555,23 @@ elif page == "הגדרות":
             st.rerun()
 
         st.markdown("---")
+st.markdown("---")
 
+        st.markdown("**רשימת נציגים אמיתיים**")
+        st.caption("מסיר את 'מוקדן 1-4' הזמניים ומכניס את השמות האמיתיים (12 נציגים)")
+        confirm_ops = st.checkbox(
+            "אני מאשר החלפת רשימת המוקדנים",
+            key="confirm_refresh_ops",
+        )
+        if st.button(
+            "🔄 עדכן רשימת נציגים",
+            disabled=not confirm_ops,
+            key="refresh_ops_btn",
+        ):
+            count = db.refresh_operators()
+            st.session_state.pop("confirm_refresh_ops", None)
+            st.success(f"נוספו {count} נציגים אמיתיים. המוקדנים הזמניים הוסרו.")
+            st.rerun()
         st.markdown("**מצלמות אמיתיות - טירת כרמל (191 מצלמות ב-35 אזורים)**")
         current_count2 = len(db.get_all_cameras())
         confirm_real = st.checkbox(
