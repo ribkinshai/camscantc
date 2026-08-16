@@ -1001,6 +1001,7 @@ elif page == "לוח בקרה":
             )
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
+        # ============ ביצועים לפי נציג - טבלה ============
         st.markdown("---")
         st.markdown("#### 👥 ביצועים לפי נציג")
         df_scans['scanned_by'] = df_scans['scanned_by'].fillna('לא ידוע').replace('', 'לא ידוע')
@@ -1009,9 +1010,165 @@ elif page == "לוח בקרה":
             ok=('status', lambda s: (s != 'issue').sum()),
             issues=('status', lambda s: (s == 'issue').sum()),
         ).reset_index()
-        by_scanner['אחוז_עמידה'] = (by_scanner['ok'] / by_scanner['total'] * 100).round(1).astype(str) + '%'
-        by_scanner.columns = ['שם נציג', 'סה"כ סריקות', 'תקינות', 'לא תקינות', 'אחוז תקינות']
-        st.dataframe(by_scanner.sort_values('סה"כ סריקות', ascending=False), use_container_width=True, hide_index=True)
+        by_scanner['אחוז_תקינות'] = (by_scanner['ok'] / by_scanner['total'] * 100).round(1).astype(str) + '%'
+        by_scanner_display = by_scanner.copy()
+        by_scanner_display.columns = ['שם נציג', 'סה"כ סריקות', 'תקינות', 'לא תקינות', 'אחוז תקינות']
+        st.dataframe(
+            by_scanner_display.sort_values('סה"כ סריקות', ascending=False),
+            use_container_width=True, hide_index=True,
+        )
+
+        # ============ גרף: נציגים לפי מספר סריקות ============
+        st.markdown("---")
+        st.markdown("#### 🏆 דירוג נציגים - מספר סריקות")
+        st.caption("מציג את הנציגים לפי סך הסריקות שביצעו (תקינות + לא תקינות)")
+
+        rank_scanners = by_scanner.sort_values('total', ascending=True).tail(15)
+        if not rank_scanners.empty:
+            fig_scanners = px.bar(
+                rank_scanners,
+                y='scanned_by', x='total',
+                orientation='h',
+                text='total',
+                labels={'scanned_by': 'נציג', 'total': 'סה"כ סריקות'},
+                color='total',
+                color_continuous_scale='Blues',
+                height=max(320, len(rank_scanners) * 32),
+            )
+            fig_scanners.update_traces(textposition='outside')
+            fig_scanners.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color=TEXT),
+                margin=dict(l=20, r=40, t=20, b=20),
+                coloraxis_showscale=False,
+            )
+            st.plotly_chart(fig_scanners, use_container_width=True, config={'displayModeBar': False})
+
+        # ============ גרף: נציגים שזיהו הכי הרבה אירועים ============
+        if issue_count > 0:
+            st.markdown("---")
+            st.markdown("#### 🎯 נציגים שזיהו הכי הרבה אירועים")
+            st.caption("נציגים שסימנו הכי הרבה מצלמות כ'לא נסרק' - מזהי האירועים המובילים")
+
+            top_detectors = by_scanner[by_scanner['issues'] > 0].sort_values('issues', ascending=True).tail(15)
+            if not top_detectors.empty:
+                fig_detectors = px.bar(
+                    top_detectors,
+                    y='scanned_by', x='issues',
+                    orientation='h',
+                    text='issues',
+                    labels={'scanned_by': 'נציג', 'issues': 'מספר אירועים שזוהו'},
+                    color='issues',
+                    color_continuous_scale='Reds',
+                    height=max(320, len(top_detectors) * 32),
+                )
+                fig_detectors.update_traces(textposition='outside')
+                fig_detectors.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color=TEXT),
+                    margin=dict(l=20, r=40, t=20, b=20),
+                    coloraxis_showscale=False,
+                )
+                st.plotly_chart(fig_detectors, use_container_width=True, config={'displayModeBar': False})
+
+        # ============ גרף: נציגים שפספסו הכי הרבה סריקות ============
+        try:
+            missed_all = sch.get_missed_scans(now, lookback_hours=168)  # שבוע אחורה
+        except Exception:
+            missed_all = []
+
+        # סינון לפי טווח התאריכים שנבחר
+        missed_in_range = []
+        for hk, cam in missed_all:
+            try:
+                hk_date_str = hk[:10]
+                hk_date = datetime.strptime(hk_date_str, "%Y-%m-%d").date()
+                if start_date <= hk_date <= end_date:
+                    missed_in_range.append((hk, cam))
+            except (ValueError, TypeError):
+                pass
+
+        # מפוצל לפי איזה נציג היה במשמרת בשעה שהוחמצה
+        if missed_in_range and not df_scans.empty:
+            st.markdown("---")
+            st.markdown("#### ⚠️ נציגים שפספסו הכי הרבה סריקות")
+            st.caption(f"סריקות שלא בוצעו כלל בזמן המתוכנן · טווח נבחר · סה\"כ {len(missed_in_range)} החמצות")
+
+            # בונים dictionary של שעה -> נציג פעיל באותה שעה
+            df_scans_sorted = df_scans.sort_values('scanned_at')
+            df_scans_sorted['scan_hour'] = df_scans_sorted['scheduled_hour']
+            hour_to_scanner = {}
+            for _, row in df_scans_sorted.iterrows():
+                h = row['scheduled_hour']
+                if h not in hour_to_scanner:
+                    hour_to_scanner[h] = row['scanned_by']
+
+            # ספירת החמצות פר נציג
+            misses_by_scanner = {}
+            for hk, cam in missed_in_range:
+                scanner = hour_to_scanner.get(hk, '(לא ידוע - אין סריקות בשעה)')
+                misses_by_scanner[scanner] = misses_by_scanner.get(scanner, 0) + 1
+
+            if misses_by_scanner:
+                misses_df = pd.DataFrame([
+                    {'scanner': k, 'misses': v}
+                    for k, v in misses_by_scanner.items()
+                ]).sort_values('misses', ascending=True).tail(15)
+
+                fig_misses = px.bar(
+                    misses_df,
+                    y='scanner', x='misses',
+                    orientation='h',
+                    text='misses',
+                    labels={'scanner': 'נציג', 'misses': 'מספר סריקות שהוחמצו'},
+                    color='misses',
+                    color_continuous_scale='Oranges',
+                    height=max(320, len(misses_df) * 32),
+                )
+                fig_misses.update_traces(textposition='outside')
+                fig_misses.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color=TEXT),
+                    margin=dict(l=20, r=40, t=20, b=20),
+                    coloraxis_showscale=False,
+                )
+                st.plotly_chart(fig_misses, use_container_width=True, config={'displayModeBar': False})
+                st.caption("💡 הערה: הנציג משויך לשעה לפי מי שביצע סריקות באותה שעה. אם אף אחד לא סרק - הנתון יוצג כ'לא ידוע'.")
+
+        # ============ גרף: מוקדים עם הכי הרבה אירועים ============
+        if issue_count > 0:
+            st.markdown("---")
+            st.markdown("#### 🔥 מצלמות עם הכי הרבה אירועים שזוהו")
+            st.caption("המצלמות שדרכן זוהו הכי הרבה אירועים - מקומות שדורשים תשומת לב מיוחדת")
+
+            df_issues_only = pd.DataFrame(all_issues_scans)
+            top_cams = df_issues_only.groupby('camera_name').size().reset_index(name='count').sort_values('count', ascending=True).tail(15)
+
+            if not top_cams.empty:
+                fig_top_cams = px.bar(
+                    top_cams,
+                    y='camera_name', x='count',
+                    orientation='h',
+                    text='count',
+                    labels={'camera_name': 'שם מצלמה', 'count': 'מספר אירועים'},
+                    color='count',
+                    color_continuous_scale='Reds',
+                    height=max(320, len(top_cams) * 32),
+                )
+                fig_top_cams.update_traces(textposition='outside')
+                fig_top_cams.update_layout(
+                    plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color=TEXT),
+                    margin=dict(l=20, r=40, t=20, b=20),
+                    coloraxis_showscale=False,
+                )
+                st.plotly_chart(fig_top_cams, use_container_width=True, config={'displayModeBar': False})
+
+            # טבלה נוספת - כל המצלמות עם אירועים
+            st.markdown("**📊 טבלה מלאה של כל המצלמות עם אירועים**")
+            top_cams_full = df_issues_only.groupby('camera_name').size().reset_index(name='מספר אירועים').sort_values('מספר אירועים', ascending=False)
+            top_cams_full.columns = ['שם מצלמה', 'מספר אירועים']
+            st.dataframe(top_cams_full, use_container_width=True, hide_index=True)
 
         if issue_count > 0:
             st.markdown("---")
