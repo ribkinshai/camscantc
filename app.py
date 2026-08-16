@@ -62,7 +62,11 @@ try:
     db.auto_backup_if_needed()
 except Exception:
     pass
-
+# סריקת החמצות אוטומטית - מתעדת החמצות של תוכניות שהסתיימו
+try:
+    db.scan_and_record_missed_from_plans(now_il(), grace_minutes=15)
+except Exception:
+    pass
 st.set_page_config(
     page_title="מעקב סריקות מצלמות",
     page_icon="🎥",
@@ -1137,7 +1141,124 @@ elif page == "לוח בקרה":
 
         if rows:
             st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+# ============ תיעוד קבוע של החמצות סריקה לפי נציג ============
+    try:
+        missed_log = db.get_missed_scans_log(str(start_date), str(end_date))
+    except Exception:
+        missed_log = []
 
+    if missed_log:
+        st.markdown("---")
+        st.markdown("#### 📋 תיעוד החמצות סריקה - קבוע")
+        st.caption(f"כל הסריקות שהוחמצו בטווח (נשמרות במסד) · סה\"כ {len(missed_log)} החמצות")
+
+        # ---- מדדים ----
+        unresolved = [m for m in missed_log if not m.get('actual_scan_id')]
+        resolved_late = [m for m in missed_log if m.get('actual_scan_id')]
+
+        mm1, mm2, mm3, mm4 = st.columns(4)
+        mm1.metric("סה\"כ החמצות מתועדות", len(missed_log))
+        mm2.metric("שלא בוצעו כלל", len(unresolved))
+        mm3.metric("שבוצעו באיחור", len(resolved_late))
+        unique_scanners = len(set(m.get('assigned_scanner', 'לא ידוע') for m in missed_log))
+        mm4.metric("נציגים מעורבים", unique_scanners)
+
+        # ---- גרף: החמצות לפי נציג ----
+        try:
+            summary_by_scanner = db.get_missed_scans_summary_by_scanner(
+                str(start_date), str(end_date)
+            )
+        except Exception:
+            summary_by_scanner = []
+
+        if summary_by_scanner:
+            st.markdown("**⚠️ נציגים לפי מספר החמצות (מתועד)**")
+            df_summary = pd.DataFrame(summary_by_scanner)
+            df_summary_sorted = df_summary.sort_values('misses', ascending=True).tail(15)
+
+            fig_ms = px.bar(
+                df_summary_sorted,
+                y='assigned_scanner', x='misses',
+                orientation='h', text='misses',
+                labels={'assigned_scanner': 'נציג', 'misses': 'החמצות'},
+                color='misses', color_continuous_scale='Oranges',
+                height=max(320, len(df_summary_sorted) * 32),
+            )
+            fig_ms.update_traces(textposition='outside')
+            fig_ms.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color=TEXT), margin=dict(l=20, r=40, t=20, b=20),
+                coloraxis_showscale=False,
+            )
+            st.plotly_chart(fig_ms, use_container_width=True, config={'displayModeBar': False})
+
+        # ---- טבלת פירוט ----
+        st.markdown("**📊 פירוט מלא של החמצות**")
+
+        # סינון
+        fs1, fs2 = st.columns([2, 2])
+        all_missed_scanners = sorted(set(m.get('assigned_scanner', 'לא ידוע') for m in missed_log))
+        sel_missed_scanner = fs1.selectbox(
+            "👤 סנן לפי נציג", ["כל הנציגים"] + all_missed_scanners,
+            key="missed_scanner_filter",
+        )
+        sel_missed_status = fs2.selectbox(
+            "סטטוס", ["הכל", "לא בוצעו כלל", "בוצעו באיחור"],
+            key="missed_status_filter",
+        )
+
+        filtered_missed = missed_log
+        if sel_missed_scanner != "כל הנציגים":
+            filtered_missed = [m for m in filtered_missed if m.get('assigned_scanner') == sel_missed_scanner]
+        if sel_missed_status == "לא בוצעו כלל":
+            filtered_missed = [m for m in filtered_missed if not m.get('actual_scan_id')]
+        elif sel_missed_status == "בוצעו באיחור":
+            filtered_missed = [m for m in filtered_missed if m.get('actual_scan_id')]
+
+        st.caption(f"מציג: {len(filtered_missed)} החמצות")
+
+        rows_missed = []
+        for m in filtered_missed[:200]:
+            actual = m.get('scanned_at') or ''
+            if actual:
+                try:
+                    sched_dt = datetime.strptime(m['scheduled_hour'], "%Y-%m-%d %H:%M")
+                    act_dt = datetime.strptime(actual[:19], "%Y-%m-%d %H:%M:%S")
+                    delay_min = int((act_dt - sched_dt).total_seconds() / 60)
+                    if delay_min < 60:
+                        late_status = f"🟡 בוצע באיחור של {delay_min} דק'"
+                    else:
+                        h = delay_min // 60
+                        mn = delay_min % 60
+                        late_status = f"🔴 בוצע באיחור של {h}:{mn:02d} שעות"
+                except (ValueError, TypeError):
+                    late_status = "🟡 בוצע באיחור"
+            else:
+                late_status = "❌ לא בוצע כלל"
+
+            rows_missed.append({
+                "שעה מתוזמנת": m['scheduled_hour'],
+                "מצלמה": m['camera_name'],
+                "אזור": m.get('camera_area') or '-',
+                "נציג אחראי": m.get('assigned_scanner') or 'לא ידוע',
+                "תוכנית": m.get('plan_name') or 'סבב רגיל',
+                "סטטוס": late_status,
+                "בוצע בפועל בשעה": actual[:19] if actual else '-',
+            })
+
+        if rows_missed:
+            st.dataframe(pd.DataFrame(rows_missed), use_container_width=True, hide_index=True)
+
+            # ייצוא
+            df_missed_export = pd.DataFrame(rows_missed)
+            csv_missed = df_missed_export.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                "📥 ייצא פירוט החמצות (CSV)",
+                data=csv_missed,
+                file_name=f"missed_scans_{start_date}_to_{end_date}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
     try:
         cc_data = db.get_comm_checks_in_date_range(str(start_date), str(end_date))
     except Exception:
