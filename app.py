@@ -352,16 +352,38 @@ if st.sidebar.button("🔒 יציאה מהמערכת", use_container_width=True,
 
 def render_missed_scans_banner():
     """
-    מציג בנר בולט עם מספר הסריקות שהוחמצו + פירוט להרחבה.
-    מוצג רק אם יש סריקות שהוחמצו ב-8 השעות האחרונות.
+    מציג בנר בולט עם מספר הסריקות שהוחמצו + כפתור איפוס.
+    - מנהלת: איפוס גלובלי (למנהלת + לכל המוקדנים)
+    - מוקדן: איפוס מקומי בלבד (רק בסשן שלו, מנהלת ממשיכה לראות)
     """
     _now_for_check = now_il()
+    is_mgr = st.session_state.get('user_role') == 'manager'
+
+    # ---- חישוב סף האיפוס הרלוונטי למשתמש הנוכחי ----
+    global_dismiss = db.get_setting('banner_dismissed_until', None)
+    local_dismiss = st.session_state.get('banner_dismissed_until_local', None)
+
+    if is_mgr:
+        # מנהלת - רק איפוס גלובלי משפיע עליה
+        effective_cutoff = global_dismiss
+    else:
+        # מוקדן - האיפוס המאוחר מבין השניים (גלובלי או מקומי)
+        if global_dismiss and local_dismiss:
+            effective_cutoff = max(global_dismiss, local_dismiss)
+        else:
+            effective_cutoff = global_dismiss or local_dismiss
+
+    # ---- קבלת סריקות שהוחמצו + סינון ----
     missed = sch.get_missed_scans(_now_for_check, lookback_hours=8)
 
-    if not missed:
-        return  # אין החמצות - לא מציג כלום
+    if effective_cutoff:
+        # השאר רק סריקות מהוחמצו אחרי סף האיפוס
+        missed = [(hk, cam) for hk, cam in missed if hk > effective_cutoff]
 
-    # קיבוץ לפי שעה
+    if not missed:
+        return  # אין החמצות פעילות - אין מה להציג
+
+    # ---- קיבוץ לפי שעה ----
     by_hour = {}
     for hour_key_val, cam in missed:
         if hour_key_val not in by_hour:
@@ -374,7 +396,6 @@ def render_missed_scans_banner():
     banner_bg = '#7f1d1d' if is_dark_local else '#fee2e2'
     banner_border = '#dc2626'
     banner_text = '#fef2f2' if is_dark_local else '#7f1d1d'
-    detail_bg = '#450a0a' if is_dark_local else '#fef2f2'
 
     st.markdown(f"""
     <style>
@@ -388,7 +409,7 @@ def render_missed_scans_banner():
     </style>
     <div class="missed-banner" style="background-color: {banner_bg};
                 border: 2px solid {banner_border};
-                border-radius: 10px; padding: 16px 20px; margin-bottom: 16px;">
+                border-radius: 10px; padding: 16px 20px; margin-bottom: 8px;">
         <div style="display: flex; align-items: center; gap: 12px;">
             <span style="font-size: 2rem;">🚨</span>
             <div style="flex: 1;">
@@ -402,6 +423,31 @@ def render_missed_scans_banner():
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # ---- כפתור איפוס - שונה לפי תפקיד ----
+    bc1, bc2, bc3 = st.columns([2, 2, 1])
+    with bc3:
+        current_ts = _now_for_check.strftime("%Y-%m-%d %H:%M:%S")
+        if is_mgr:
+            if st.button(
+                "✅ טופל · נקה לכולם",
+                key="dismiss_missed_global",
+                use_container_width=True,
+                type="primary",
+                help="מנקה את הבנר גם למוקדנים",
+            ):
+                db.set_setting('banner_dismissed_until', current_ts)
+                st.success("הבנר נוקה לכל המשתמשים")
+                st.rerun()
+        else:
+            if st.button(
+                "🔕 נקה אצלי",
+                key="dismiss_missed_local",
+                use_container_width=True,
+                help="מנקה רק אצלך - מנהלת עדיין תראה את ההתראה",
+            ):
+                st.session_state['banner_dismissed_until_local'] = current_ts
+                st.rerun()
 
     with st.expander(f"📋 פירוט כל {total_missed} הסריקות שהוחמצו", expanded=False):
         for hour_key_val in sorted(by_hour.keys(), reverse=True):
