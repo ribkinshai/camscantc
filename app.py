@@ -352,17 +352,23 @@ if st.sidebar.button("🔒 יציאה מהמערכת", use_container_width=True,
     st.rerun()
 def render_current_plan_banner():
     """
-    מציג בנר עם התוכנית הפעילה לשעה הנוכחית (מתוך הלו״ז שהמנהלת הגדירה).
+    מציג בנר עם התוכנית הפעילה לשעה הנוכחית + כפתורי סימון אינטראקטיביים.
     בזמן אמת - מסתנכרן עם השעה בפועל.
     """
     _now_for_plan = now_il()
     active_plans = db.get_active_scan_plans_for_datetime(_now_for_plan)
 
     if not active_plans:
-        return  # אין תוכנית פעילה כרגע
+        return
 
     all_cams_for_plan = db.get_all_cameras()
     cam_map = {c['id']: c for c in all_cams_for_plan}
+    faulty_ids_plan = db.get_faulty_camera_ids()
+
+    current_hour_local = _now_for_plan.replace(minute=0, second=0, microsecond=0)
+    current_hour_key_local = sch.hour_key(current_hour_local)
+    scanned_now_plan = db.get_scans_for_hour(current_hour_key_local)
+    scanner_name_local = st.session_state.get('scanner_name', '') or st.session_state.get('user_name', '')
 
     is_dark_local = st.session_state.get('theme', 'light') == 'dark'
 
@@ -376,11 +382,16 @@ def render_current_plan_banner():
         banner_bg = '#1e293b' if is_dark_local else '#f0f9ff'
         text_color = '#e2e8f0' if is_dark_local else '#0c4a6e'
 
-        cams_in_plan = [cam_map[cid] for cid in plan.get('camera_ids', []) if cid in cam_map]
+        cams_in_plan = [cam_map[cid] for cid in plan.get('camera_ids', [])
+                        if cid in cam_map and cid not in faulty_ids_plan]
+        scanned_count = sum(1 for c in cams_in_plan if c['id'] in scanned_now_plan)
+        total_count = len(cams_in_plan)
+        progress_pct = int(scanned_count / total_count * 100) if total_count > 0 else 0
 
+        # ---- הבנר עצמו ----
         st.markdown(f"""
         <div style="background-color: {banner_bg}; border: 2px solid {border_color};
-                    border-radius: 10px; padding: 14px 18px; margin-bottom: 12px;">
+                    border-radius: 10px; padding: 14px 18px; margin-bottom: 4px;">
             <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
                 <span style="font-size: 1.5rem;">{icon}📅</span>
                 <div style="flex: 1;">
@@ -389,13 +400,89 @@ def render_current_plan_banner():
                     </div>
                     <div style="font-size: 0.85rem; color: {text_color}; opacity: 0.85; margin-top: 3px;">
                         ⏰ {plan.get('start_time', '')} - {plan.get('end_time', '')}  ·
-                        🎥 {len(cams_in_plan)} מצלמות בתוכנית
+                        📊 בוצעו {scanned_count} מתוך {total_count} ({progress_pct}%)
                     </div>
                 </div>
             </div>
             {f'<div style="font-size: 0.9rem; color: {text_color}; margin-top: 6px; padding-top: 6px; border-top: 1px solid {border_color}44;"><b>📝 דגשים:</b> {plan.get("description")}</div>' if plan.get('description') else ''}
         </div>
         """, unsafe_allow_html=True)
+
+        # ---- רשימת מצלמות עם כפתורי סימון ----
+        if cams_in_plan:
+            with st.expander(
+                f"🎥 סמן סריקות של '{plan['name']}' ({scanned_count}/{total_count} בוצעו)",
+                expanded=True,
+            ):
+                for cam in cams_in_plan:
+                    is_scanned = cam['id'] in scanned_now_plan
+                    if is_scanned:
+                        # שורה נעולה - כבר סומן
+                        info = scanned_now_plan[cam['id']]
+                        status = info.get('status') or 'ok'
+                        time_str = info['scanned_at'][11:19] if info['scanned_at'] else ''
+                        by = info['scanned_by'] or ''
+                        if status == 'issue':
+                            badge_bg = RED
+                            badge_label = 'לא נסרק'
+                            dot_class = 'issue'
+                        else:
+                            badge_bg = ACCENT
+                            badge_label = 'נסרק'
+                            dot_class = 'ok'
+
+                        st.markdown(f"""
+                            <div style="padding: 8px 12px; margin-bottom: 6px;
+                                        background-color: {SURFACE2}; border-right: 3px solid {badge_bg};
+                                        border-radius: 6px;">
+                                <div style="display: flex; align-items: center; gap: 10px; justify-content: space-between;">
+                                    <div style="flex: 1;">
+                                        <span class="status-dot {dot_class}"></span>
+                                        <span class="camera-name">{cam['name']}</span>
+                                        <div style="font-size: 0.72rem; color: {MUTED}; margin-top: 3px;">
+                                            🔒 ע"י {by} · 🗂️ {cam.get('area', '') or '-'}
+                                        </div>
+                                    </div>
+                                    <div style="background-color: {badge_bg}; color: white;
+                                                padding: 4px 12px; border-radius: 6px;
+                                                font-weight: 500; font-size: 0.85rem;
+                                                font-family: 'Courier New', monospace;">
+                                        🕐 {time_str} · {badge_label}
+                                    </div>
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        # שורה פעילה - יש כפתורים
+                        cols = st.columns([4, 1, 1])
+                        cols[0].markdown(f"""
+                            <div style="padding: 4px 0;">
+                                <span class="status-dot pending"></span>
+                                <span class="camera-name">{cam['name']}</span>
+                                <div style="font-size: 0.72rem; color: {MUTED}; margin-top: 3px;">
+                                    🗂️ {cam.get('area', '') or '-'}
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        if cols[1].button(
+                            "✅ נסרק",
+                            key=f"plan_ok_{plan['id']}_{cam['id']}",
+                            type="primary",
+                            use_container_width=True,
+                        ):
+                            db.mark_scan(cam['id'], current_hour_key_local, scanner_name_local, status='ok')
+                            st.rerun()
+                        if cols[2].button(
+                            "❌ לא נסרק",
+                            key=f"plan_iss_{plan['id']}_{cam['id']}",
+                            type="tertiary",
+                            use_container_width=True,
+                        ):
+                            st.session_state['issue_cam_id'] = cam['id']
+                            st.session_state['issue_cam_name'] = cam['name']
+                            st.rerun()
+
+        st.markdown("")  # רווח בין תוכניות
 
         if cams_in_plan:
             with st.expander(f"📋 רשימת המצלמות בתוכנית ({len(cams_in_plan)})", expanded=False):
@@ -517,6 +604,20 @@ current_hour_key = sch.hour_key(current_hour)
 
 # ============ עמוד: סריקה שוטפת ============
 if page == "סריקה שוטפת":
+    # ============ רענון אוטומטי כל 60 שניות (מסתנכרן עם השעה בפועל) ============
+    # רק אם המוקדן לא באמצע מילוי טופס - כדי לא לאבד קלט
+    _is_editing_form = (
+        st.session_state.get('issue_cam_id') or
+        st.session_state.get('editing_scanner') or
+        not st.session_state.get('scanner_name')
+    )
+    if not _is_editing_form:
+        st.markdown(
+            '<meta http-equiv="refresh" content="60">',
+            unsafe_allow_html=True,
+        )
+
+    # ============ הגנה: מסך זה למוקדנים בלבד ============
     if st.session_state.get('user_role') == 'manager':
         st.warning("⚠️ מסך זה מיועד למוקדנים בלבד. מנהלת עוקבת דרך לוח הבקרה.")
         st.info("💡 עבור ל-**📊 לוח בקרה** בסרגל הצד לצפייה בסטטוס הסריקות של המשמרת.")
