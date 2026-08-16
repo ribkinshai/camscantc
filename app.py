@@ -4,6 +4,7 @@
 from datetime import datetime, timedelta, date, time
 from zoneinfo import ZoneInfo
 import json
+import os
 import re
 
 import pandas as pd
@@ -55,6 +56,12 @@ def _camera_map_position(cam, area_coords):
 
 
 db.init_db()
+
+# גיבוי אוטומטי יומי - רץ פעם אחת ביום כשמישהו נכנס
+try:
+    db.auto_backup_if_needed()
+except Exception:
+    pass
 
 st.set_page_config(
     page_title="מעקב סריקות מצלמות",
@@ -1761,6 +1768,121 @@ elif page == "הגדרות":
     ar = st.checkbox("רענון אוטומטי כל 30 שניות",
                       value=st.session_state.get('auto_refresh', False))
     st.session_state['auto_refresh'] = ar
+
+    with st.expander("💾 גיבוי ושחזור", expanded=True):
+        st.caption("גיבוי מלא של כל נתוני המערכת: מצלמות, סריקות, נציגים, לו״ז, ועוד")
+
+        # ---- גיבוי ידני ----
+        st.markdown("**📥 יצירת גיבוי חדש**")
+        try:
+            backup_data_preview, backup_filename = db.create_backup()
+            backup_json = json.dumps(backup_data_preview, ensure_ascii=False, indent=2)
+            total_records = sum(len(v) for v in backup_data_preview['tables'].values())
+            backup_size_kb = round(len(backup_json.encode('utf-8')) / 1024, 1)
+
+            st.caption(f"📊 הגיבוי יכלול: **{total_records:,}** רשומות · **{len(backup_data_preview['tables'])}** טבלאות · **{backup_size_kb} KB**")
+
+            st.download_button(
+                "📥 הורד גיבוי מלא (JSON)",
+                data=backup_json.encode('utf-8'),
+                file_name=backup_filename,
+                mime="application/json",
+                type="primary",
+                use_container_width=True,
+            )
+        except Exception as e:
+            st.error(f"שגיאה ביצירת גיבוי: {e}")
+
+        st.markdown("---")
+
+        # ---- גיבויים אוטומטיים על הדיסק ----
+        st.markdown("**🗂️ גיבויים אוטומטיים (נשמרים על השרת)**")
+        st.caption("המערכת שומרת אוטומטית גיבוי אחד ליום, ומחזיקה עד 7 גיבויים אחרונים")
+
+        auto_backups = db.get_available_backups()
+        if not auto_backups:
+            st.info("עוד לא נוצרו גיבויים אוטומטיים")
+        else:
+            for backup in auto_backups:
+                bc1, bc2, bc3 = st.columns([3, 2, 1])
+                bc1.text(f"📄 {backup['filename']}")
+                bc2.caption(f"📅 {backup['created']} · {backup['size_kb']} KB")
+                try:
+                    with open(backup['filepath'], 'rb') as f:
+                        bc3.download_button(
+                            "📥",
+                            data=f.read(),
+                            file_name=backup['filename'],
+                            mime="application/json",
+                            key=f"dl_{backup['filename']}",
+                            use_container_width=True,
+                        )
+                except Exception:
+                    bc3.caption("שגיאה")
+
+        # כפתור יצירת גיבוי אוטומטי מיידי
+        if st.button("💾 צור גיבוי אוטומטי עכשיו", key="manual_auto_backup"):
+            try:
+                filepath = db.save_backup_to_disk()
+                db.set_setting('last_auto_backup', datetime.now().isoformat())
+                st.success(f"נשמר גיבוי: {os.path.basename(filepath)}")
+                st.rerun()
+            except Exception as e:
+                st.error(f"שגיאה: {e}")
+
+        st.markdown("---")
+
+        # ---- שחזור ----
+        st.markdown("**🔄 שחזור מגיבוי**")
+        st.warning("⚠️ **זהירות!** שחזור ימחוק את **כל הנתונים הנוכחיים** ויחליף אותם בנתונים מהגיבוי")
+
+        uploaded_backup = st.file_uploader(
+            "העלה קובץ גיבוי (JSON)",
+            type=['json'],
+            key="backup_uploader",
+        )
+
+        if uploaded_backup is not None:
+            try:
+                backup_content = json.loads(uploaded_backup.read().decode('utf-8'))
+                if 'tables' not in backup_content:
+                    st.error("❌ קובץ לא תקין - חסרות טבלאות")
+                else:
+                    n_records = sum(len(v) for v in backup_content['tables'].values())
+                    n_tables = len(backup_content['tables'])
+                    created_at = backup_content.get('created_at', 'לא ידוע')
+
+                    st.info(
+                        f"📊 **מידע על הגיבוי:**  \n"
+                        f"תאריך יצירה: {created_at}  \n"
+                        f"מספר טבלאות: {n_tables}  \n"
+                        f"סה\"כ רשומות: {n_records:,}"
+                    )
+
+                    confirm_restore = st.checkbox(
+                        "🚨 אני מאשר שחזור מלא - כל הנתונים הנוכחיים יימחקו",
+                        key="confirm_restore_backup",
+                    )
+                    if st.button(
+                        "🔄 בצע שחזור עכשיו",
+                        disabled=not confirm_restore,
+                        type="primary",
+                        key="do_restore_btn",
+                    ):
+                        try:
+                            summary = db.restore_from_backup(backup_content)
+                            st.session_state.pop('confirm_restore_backup', None)
+                            st.success("✅ שחזור הושלם בהצלחה!")
+                            with st.expander("📊 פירוט השחזור", expanded=True):
+                                for tbl, cnt in summary.items():
+                                    st.text(f"{tbl}: {cnt:,} רשומות")
+                            st.info("🔄 יש לרענן את הדף לראות את הנתונים המשוחזרים")
+                        except Exception as e:
+                            st.error(f"❌ שגיאה בשחזור: {e}")
+            except json.JSONDecodeError:
+                st.error("❌ קובץ JSON לא תקין")
+            except Exception as e:
+                st.error(f"❌ שגיאה: {e}")
 
     with st.expander("🔧 כלי עזר"):
         st.markdown("**מצלמות אמיתיות - טירת כרמל (191 מצלמות)**")
