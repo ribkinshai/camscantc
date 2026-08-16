@@ -571,9 +571,13 @@ def render_current_plan_banner():
                         time_str = info['scanned_at'][11:19] if info['scanned_at'] else ''
                         by = info['scanned_by'] or ''
                         if status == 'issue':
-                            badge_bg = RED; badge_label = 'לא נסרק'; dot_class = 'issue'
+                            badge_bg = RED
+                            badge_label = 'נמצא מפגע'
+                            dot_class = 'issue'
                         else:
-                            badge_bg = ACCENT; badge_label = 'נסרק'; dot_class = 'ok'
+                            badge_bg = ACCENT
+                            badge_label = 'נסרק'
+                            dot_class = 'ok'
 
                         st.markdown(f"""
                             <div style="padding: 8px 12px; margin-bottom: 6px;
@@ -610,7 +614,7 @@ def render_current_plan_banner():
                                           type="primary", use_container_width=True):
                             db.mark_scan(cam['id'], current_hour_key_local, scanner_name_local, status='ok')
                             st.rerun()
-                        if cols[2].button("❌ לא נסרק", key=f"plan_iss_{plan['id']}_{cam['id']}",
+                        if cols[2].button("⚠️ נסרק - נמצא מפגע", key=f"plan_iss_{plan['id']}_{cam['id']}",
                                           type="tertiary", use_container_width=True):
                             st.session_state['issue_cam_id'] = cam['id']
                             st.session_state['issue_cam_name'] = cam['name']
@@ -680,7 +684,7 @@ if page == "סריקה שוטפת":
 
         c1, c2, c3 = st.columns([1, 3, 1])
         with c2:
-            st.markdown("### ❌ מדוע לא נסרק?")
+            st.markdown("### ⚠️ פרטי המפגע שנמצא")
             st.caption(f"מצלמה: **{cam_name}** · שעה: {current_hour_key}")
 
             with st.form(f"not_scanned_form_{cam_id}", clear_on_submit=False):
@@ -785,7 +789,7 @@ if page == "סריקה שוטפת":
             time_str = info['scanned_at'][11:19] if info['scanned_at'] else ''
             date_str = info['scanned_at'][:10] if info['scanned_at'] else ''
             if status == 'issue':
-                dot_class = 'issue'; badge_bg = RED; badge_label = 'לא נסרק'
+                dot_class = 'issue'; badge_bg = RED; badge_label = 'נמצא מפגע'
             else:
                 dot_class = 'ok'; badge_bg = ACCENT; badge_label = 'נסרק'
 
@@ -827,7 +831,7 @@ if page == "סריקה שוטפת":
                               type="primary", use_container_width=True):
                 db.mark_scan(cam['id'], current_hour_key, scanner_name, status='ok')
                 st.rerun()
-            if cols[2].button("❌ לא נסרק", key=f"iss_{prefix}_{cam['id']}",
+            if cols[2].button("⚠️ נסרק - נמצא מפגע", key=f"iss_{prefix}_{cam['id']}",
                               type="tertiary", use_container_width=True):
                 st.session_state['issue_cam_id'] = cam['id']
                 st.session_state['issue_cam_name'] = cam['name']
