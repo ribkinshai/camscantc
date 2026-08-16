@@ -1319,3 +1319,12 @@ def get_active_scan_plans_for_datetime(dt):
                 matching.append(p)
 
     return matching
+def get_comm_checks_in_date_range(start_date, end_date):
+    """מחזיר את כל בדיקות הקשר בטווח תאריכים - לצורך דשבורד המנהלת"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM comm_checks WHERE date(scheduled_time) BETWEEN ? AND ? "
+            "ORDER BY scheduled_time DESC",
+            (start_date, end_date),
+        ).fetchall()
+        return [dict(r) for r in rows]
