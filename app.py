@@ -1082,7 +1082,7 @@ def render_night_comm_check_widget():
             render_row(cam, "r")
 
 # ============ עמוד: לוח בקרה ============
-elif page == "לוח בקרה":
+    elif page == "לוח בקרה":
     _is_manager = st.session_state.get('user_role') == 'manager'
     if _is_manager:
         st.header("📊 דשבורד מנהלת · מוקד 106")
