@@ -248,6 +248,19 @@ def init_db():
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (moked_user_id) REFERENCES users(id)
             );
+            CREATE TABLE IF NOT EXISTS missed_scans_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                camera_id INTEGER NOT NULL,
+                camera_name TEXT NOT NULL,
+                camera_area TEXT,
+                scheduled_hour TEXT NOT NULL,
+                assigned_scanner TEXT,
+                detection_source TEXT,
+                detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                plan_id INTEGER,
+                plan_name TEXT,
+                UNIQUE(camera_id, scheduled_hour)
+            );
             CREATE TABLE IF NOT EXISTS scheduled_scan_plans (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -1478,3 +1491,201 @@ def auto_backup_if_needed():
         except Exception:
             pass
     return False
+# ==================== לוג החמצות סריקה ====================
+def record_missed_scan(camera_id, camera_name, camera_area, scheduled_hour,
+                        assigned_scanner=None, detection_source='auto',
+                        plan_id=None, plan_name=None):
+    """
+    מתעד החמצת סריקה - אם כבר קיים תיעוד לאותה מצלמה+שעה, לא יוסיף שוב.
+    """
+    with get_conn() as conn:
+        try:
+            conn.execute(
+                "INSERT INTO missed_scans_log "
+                "(camera_id, camera_name, camera_area, scheduled_hour, "
+                "assigned_scanner, detection_source, plan_id, plan_name) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (camera_id, camera_name, camera_area or '', scheduled_hour,
+                 assigned_scanner or 'לא ידוע', detection_source,
+                 plan_id, plan_name),
+            )
+            conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+
+def get_missed_scans_log(start_date=None, end_date=None, scanner=None):
+    """
+    מחזיר לוג החמצות סריקה - עם סינון לפי תאריכים ונציג.
+    """
+    with get_conn() as conn:
+        q = """
+            SELECT m.*, s.id as actual_scan_id, s.scanned_at, s.scanned_by
+            FROM missed_scans_log m
+            LEFT JOIN scans s ON s.camera_id = m.camera_id
+                AND s.scheduled_hour = m.scheduled_hour
+                AND s.scanned_at IS NOT NULL
+            WHERE 1=1
+        """
+        params = []
+        if start_date:
+            q += " AND m.scheduled_hour >= ?"
+            params.append(f"{start_date} 00:00")
+        if end_date:
+            q += " AND m.scheduled_hour <= ?"
+            params.append(f"{end_date} 23:59")
+        if scanner:
+            q += " AND m.assigned_scanner = ?"
+            params.append(scanner)
+
+        q += " ORDER BY m.scheduled_hour DESC"
+        rows = conn.execute(q, params).fetchall()
+        return [dict(r) for r in rows]
+
+
+def infer_scanner_for_hour(scheduled_hour_str):
+    """
+    מסיק איזה נציג "היה במשמרת" בשעה נתונה, ע"פ:
+    1. מי ביצע סריקות באותה שעה בפועל
+    2. מי ביצע סריקות בשעה שקודמת/אחריה (סובלנות של 2 שעות)
+    3. אם אין - "לא ידוע"
+    """
+    with get_conn() as conn:
+        # ניסיון 1: אותה שעה בדיוק
+        row = conn.execute(
+            "SELECT scanned_by FROM scans WHERE scheduled_hour = ? "
+            "AND scanned_by IS NOT NULL AND scanned_by != '' "
+            "GROUP BY scanned_by ORDER BY COUNT(*) DESC LIMIT 1",
+            (scheduled_hour_str,),
+        ).fetchone()
+        if row and row['scanned_by']:
+            return row['scanned_by']
+
+        # ניסיון 2: 2 שעות סובלנות
+        try:
+            dt = datetime.strptime(scheduled_hour_str, "%Y-%m-%d %H:%M")
+            before = (dt - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M")
+            after = (dt + timedelta(hours=2)).strftime("%Y-%m-%d %H:%M")
+            row = conn.execute(
+                "SELECT scanned_by FROM scans WHERE scheduled_hour BETWEEN ? AND ? "
+                "AND scanned_by IS NOT NULL AND scanned_by != '' "
+                "GROUP BY scanned_by ORDER BY COUNT(*) DESC LIMIT 1",
+                (before, after),
+            ).fetchone()
+            if row and row['scanned_by']:
+                return row['scanned_by']
+        except (ValueError, TypeError):
+            pass
+
+    return 'לא ידוע'
+
+
+def scan_and_record_missed_from_plans(current_datetime, grace_minutes=15):
+    """
+    סורק את כל תוכניות הלו"ז ומתעד סריקות שהוחמצו:
+    - עבור כל תוכנית שהסתיימה
+    - עבור כל מצלמה בתוכנית
+    - אם לא נסרקה בטווח השעות של התוכנית
+    - מתעד כהחמצה עם שם הנציג האחראי
+    """
+    from datetime import datetime as _dt, timedelta as _td
+
+    all_plans = get_all_scheduled_plans(active_only=True)
+    all_cams = get_all_cameras()
+    cam_map = {c['id']: c for c in all_cams}
+    faulty_ids = get_faulty_camera_ids()
+
+    now_dt = current_datetime
+    recorded_count = 0
+
+    for plan in all_plans:
+        # בדיקה: התוכנית פעילה היום? (לפי day_of_week)
+        days = plan.get('days_of_week', 'all')
+        if days != 'all':
+            allowed_days = days.split(',')
+            if str(now_dt.weekday()) not in allowed_days:
+                # בדוק את יום אתמול (אם התוכנית לילית)
+                yesterday = now_dt - _td(days=1)
+                if str(yesterday.weekday()) not in allowed_days:
+                    continue
+
+        # בדוק את השעות של התוכנית - האם הסתיימה?
+        start_time = plan.get('start_time', '')
+        end_time = plan.get('end_time', '')
+        if not start_time or not end_time:
+            continue
+
+        # חלון זמן שהסתיים ב-24 שעות אחרונות
+        for days_back in range(2):  # 2 ימים אחורה
+            check_date = (now_dt - _td(days=days_back)).date()
+            try:
+                start_dt = _dt.combine(check_date, _dt.strptime(start_time, "%H:%M").time())
+                end_dt = _dt.combine(check_date, _dt.strptime(end_time, "%H:%M").time())
+                if end_dt < start_dt:  # cross-midnight
+                    end_dt += _td(days=1)
+            except (ValueError, TypeError):
+                continue
+
+            # רק אם החלון כבר הסתיים + עברה תקופת חסד
+            if end_dt + _td(minutes=grace_minutes) >= now_dt:
+                continue
+
+            # בדוק כל מצלמה בתוכנית
+            for cam_id in plan.get('camera_ids', []):
+                if cam_id not in cam_map or cam_id in faulty_ids:
+                    continue
+
+                cam = cam_map[cam_id]
+
+                # בדוק אם המצלמה נסרקה במהלך החלון (בכל אחת מהשעות)
+                current_check = start_dt.replace(minute=0, second=0, microsecond=0)
+                was_scanned = False
+                first_hour_key = None
+
+                while current_check < end_dt:
+                    hour_key_check = current_check.strftime("%Y-%m-%d %H:%M")
+                    if first_hour_key is None:
+                        first_hour_key = hour_key_check
+                    with get_conn() as conn:
+                        r = conn.execute(
+                            "SELECT id FROM scans WHERE camera_id = ? "
+                            "AND scheduled_hour = ? AND scanned_at IS NOT NULL",
+                            (cam_id, hour_key_check),
+                        ).fetchone()
+                    if r:
+                        was_scanned = True
+                        break
+                    current_check += _td(hours=1)
+
+                if not was_scanned and first_hour_key:
+                    # מתעד כהחמצה
+                    scanner = infer_scanner_for_hour(first_hour_key)
+                    added = record_missed_scan(
+                        camera_id=cam_id,
+                        camera_name=cam['name'],
+                        camera_area=cam.get('area', ''),
+                        scheduled_hour=first_hour_key,
+                        assigned_scanner=scanner,
+                        detection_source='plan_scan',
+                        plan_id=plan['id'],
+                        plan_name=plan['name'],
+                    )
+                    if added:
+                        recorded_count += 1
+
+    return recorded_count
+
+
+def get_missed_scans_summary_by_scanner(start_date, end_date):
+    """סיכום החמצות לפי נציג לצורך גרף בדשבורד"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT assigned_scanner, COUNT(*) as misses "
+            "FROM missed_scans_log "
+            "WHERE scheduled_hour >= ? AND scheduled_hour <= ? "
+            "GROUP BY assigned_scanner "
+            "ORDER BY misses DESC",
+            (f"{start_date} 00:00", f"{end_date} 23:59"),
+        ).fetchall()
+        return [dict(r) for r in rows]
