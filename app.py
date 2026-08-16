@@ -62,9 +62,15 @@ try:
     db.auto_backup_if_needed()
 except Exception:
     pass
-# סריקת החמצות אוטומטית - מתעדת החמצות של תוכניות שהסתיימו
+# סריקת החמצות אוטומטית - נרשמות על המוקדן המחובר (לא על מנהלת)
 try:
-    db.scan_and_record_missed_from_plans(now_il(), grace_minutes=15)
+    _is_operator_login = st.session_state.get('user_role') == 'operator'
+    _current_user_for_missed = st.session_state.get('user_name') if _is_operator_login else None
+    db.scan_and_record_missed_from_plans(
+        now_il(),
+        grace_minutes=15,
+        current_user=_current_user_for_missed,
+    )
 except Exception:
     pass
 st.set_page_config(
