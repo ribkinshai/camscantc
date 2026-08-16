@@ -9,7 +9,11 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.express as px
-
+try:
+    from streamlit_autorefresh import st_autorefresh
+    _HAS_AUTOREFRESH = True
+except ImportError:
+    _HAS_AUTOREFRESH = False
 import database as db
 import scheduler as sch
 import auth
@@ -604,7 +608,7 @@ current_hour_key = sch.hour_key(current_hour)
 
 # ============ עמוד: סריקה שוטפת ============
 if page == "סריקה שוטפת":
-    # ============ רענון אוטומטי כל 60 שניות (מסתנכרן עם השעה בפועל) ============
+    # ============ רענון אוטומטי כל 20 שניות (מסתנכרן עם השעה בפועל) ============
     # רק אם המוקדן לא באמצע מילוי טופס - כדי לא לאבד קלט
     _is_editing_form = (
         st.session_state.get('issue_cam_id') or
@@ -612,10 +616,13 @@ if page == "סריקה שוטפת":
         not st.session_state.get('scanner_name')
     )
     if not _is_editing_form:
-        st.markdown(
-            '<meta http-equiv="refresh" content="60">',
-            unsafe_allow_html=True,
-        )
+        if _HAS_AUTOREFRESH:
+            st_autorefresh(interval=20 * 1000, key="scan_page_autorefresh")
+        else:
+            st.markdown(
+                '<meta http-equiv="refresh" content="30">',
+                unsafe_allow_html=True,
+            )
 
     # ============ הגנה: מסך זה למוקדנים בלבד ============
     if st.session_state.get('user_role') == 'manager':
