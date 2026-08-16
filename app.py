@@ -1277,6 +1277,171 @@ elif page == "לוח בקרה":
                 st.caption(f"⚠️ מציג 100 מתוך {len(sorted_scans)} תוצאות. צמצם סינון או ייצא לקובץ CSV לתצוגה מלאה.")
         else:
             st.info("אין סריקות התואמות לסינון")
+    # ============ סיווג אירועים: בטחון / השלכות / בטיחות / אחר ============
+    if all_issues_scans:
+        st.markdown("---")
+        st.markdown("#### 🛡️ סיווג אירועים אוטומטי")
+        st.caption("סיווג לפי מילות מפתח בפירוט האירוע · אירועים ללא מילים מזוהות מסווגים כ'אחר'")
+
+        security_keywords = [
+            'אלימות', 'ונדליזם', 'קטטה', 'פלילי', 'התקהלות',
+            'רכב חשוד', 'חשוד', 'פריצה', 'גניבה', 'שוטטות',
+            'תגרה', 'סכין', 'נשק', 'איום', 'תקיפה', 'שוד',
+        ]
+        dumping_keywords = [
+            'השלכ', 'פסולת', 'גזם', 'גרוטא', 'ניקיון', 'זבל',
+            'אשפה', 'לכלוך', 'שקיות', 'ריהוט', 'שאריות',
+        ]
+        safety_keywords = [
+            'בטיחות', 'בור', 'תאורה', 'מפגע', 'סכנה', 'סכן',
+            'שבור', 'שבורה', 'חסום', 'תקלת חשמל', 'עמוד', 'שלט',
+        ]
+
+        def categorize_event(text):
+            if not text or str(text).strip() == '-':
+                return 'ללא פירוט'
+            text_str = str(text).lower()
+            for kw in security_keywords:
+                if kw in text_str:
+                    return 'בטחון'
+            for kw in dumping_keywords:
+                if kw in text_str:
+                    return 'השלכות/פסולת'
+            for kw in safety_keywords:
+                if kw in text_str:
+                    return 'בטיחות'
+            return 'אחר'
+
+        # החלת הסיווג על כל האירועים
+        categorized = []
+        for s in all_issues_scans:
+            cat = categorize_event(s.get('event_details', ''))
+            item = dict(s)
+            item['category'] = cat
+            categorized.append(item)
+
+        df_cat = pd.DataFrame(categorized)
+        counts = df_cat['category'].value_counts()
+
+        # ---- ארבעה מדדים מרכזיים ----
+        security_count = int(counts.get('בטחון', 0))
+        dumping_count = int(counts.get('השלכות/פסולת', 0))
+        safety_count = int(counts.get('בטיחות', 0))
+        other_count = int(counts.get('אחר', 0)) + int(counts.get('ללא פירוט', 0))
+
+        cm1, cm2, cm3, cm4 = st.columns(4)
+        cm1.metric("🛡️ אירועי בטחון", security_count)
+        cm2.metric("🗑️ השלכות פסולת/גזם", dumping_count)
+        cm3.metric("⚠️ מפגעי בטיחות", safety_count)
+        cm4.metric("❓ אחר / לא מסווג", other_count)
+
+        color_map_cat = {
+            'בטחון': '#dc2626',
+            'השלכות/פסולת': '#d97706',
+            'בטיחות': '#ca8a04',
+            'אחר': '#94a3b8',
+            'ללא פירוט': '#64748b',
+        }
+
+        # ---- שני גרפים זה לצד זה ----
+        cat_g1, cat_g2 = st.columns(2)
+
+        with cat_g1:
+            st.markdown("**🥧 חלוקת אירועים לפי סוג**")
+            pie_df = counts.reset_index()
+            pie_df.columns = ['קטגוריה', 'כמות']
+            fig_pie = px.pie(
+                pie_df, names='קטגוריה', values='כמות',
+                color='קטגוריה', color_discrete_map=color_map_cat,
+                hole=0.4, height=320,
+            )
+            fig_pie.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(color=TEXT),
+                legend=dict(orientation='h', yanchor='bottom', y=-0.15, x=0.5, xanchor='center'),
+                margin=dict(l=20, r=20, t=20, b=20),
+            )
+            st.plotly_chart(fig_pie, use_container_width=True, config={'displayModeBar': False})
+
+        with cat_g2:
+            st.markdown("**📊 מגמה יומית לפי סוג**")
+            try:
+                df_cat['date_only'] = pd.to_datetime(df_cat['scheduled_hour'], errors='coerce').dt.date
+                by_date_cat = df_cat.groupby(['date_only', 'category']).size().reset_index(name='count')
+                by_date_cat['date_only'] = by_date_cat['date_only'].astype(str)
+
+                if not by_date_cat.empty:
+                    fig_trend = px.bar(
+                        by_date_cat, x='date_only', y='count', color='category',
+                        color_discrete_map=color_map_cat,
+                        labels={'date_only': 'תאריך', 'count': 'מספר אירועים', 'category': 'סוג'},
+                        height=320,
+                    )
+                    fig_trend.update_layout(
+                        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
+                        font=dict(color=TEXT),
+                        legend=dict(orientation='h', yanchor='bottom', y=1.02, x=0),
+                        margin=dict(l=20, r=20, t=40, b=20),
+                        xaxis_title=None,
+                    )
+                    st.plotly_chart(fig_trend, use_container_width=True, config={'displayModeBar': False})
+                else:
+                    st.info("אין נתונים להצגה")
+            except Exception:
+                st.info("אין נתונים להצגה")
+
+        # ---- טבלה השוואתית לפי נציג ----
+        st.markdown("**👥 סיווג אירועים לפי נציג**")
+        df_cat['scanner_name'] = df_cat['scanned_by'].fillna('לא ידוע').replace('', 'לא ידוע')
+        pivot_scanner_cat = df_cat.pivot_table(
+            index='scanner_name',
+            columns='category',
+            values='id',
+            aggfunc='count',
+            fill_value=0,
+        ).reset_index()
+
+        # וידוא שכל העמודות קיימות
+        for col in ['בטחון', 'השלכות/פסולת', 'בטיחות', 'אחר', 'ללא פירוט']:
+            if col not in pivot_scanner_cat.columns:
+                pivot_scanner_cat[col] = 0
+
+        pivot_scanner_cat['סה"כ'] = (
+            pivot_scanner_cat['בטחון'] + pivot_scanner_cat['השלכות/פסולת'] +
+            pivot_scanner_cat['בטיחות'] + pivot_scanner_cat['אחר'] +
+            pivot_scanner_cat.get('ללא פירוט', 0)
+        )
+        pivot_scanner_cat = pivot_scanner_cat.sort_values('סה"כ', ascending=False)
+        pivot_scanner_cat = pivot_scanner_cat.rename(columns={'scanner_name': 'נציג'})
+
+        # סידור עמודות בסדר הגיוני
+        cols_order = ['נציג', 'בטחון', 'השלכות/פסולת', 'בטיחות', 'אחר']
+        if 'ללא פירוט' in pivot_scanner_cat.columns:
+            cols_order.append('ללא פירוט')
+        cols_order.append('סה"כ')
+        cols_order = [c for c in cols_order if c in pivot_scanner_cat.columns]
+
+        st.dataframe(pivot_scanner_cat[cols_order], use_container_width=True, hide_index=True)
+
+        # ---- פירוט אירועים לפי קטגוריה ----
+        with st.expander("📋 פירוט אירועים לפי סיווג", expanded=False):
+            for cat_name in ['בטחון', 'השלכות/פסולת', 'בטיחות', 'אחר', 'ללא פירוט']:
+                cat_items = [s for s in categorized if s['category'] == cat_name]
+                if cat_items:
+                    st.markdown(f"### {cat_name} · {len(cat_items)} אירועים")
+                    rows_cat = []
+                    for s in sorted(cat_items, key=lambda x: x.get('scheduled_hour', ''), reverse=True)[:30]:
+                        rows_cat.append({
+                            'שעה מתוזמנת': s.get('scheduled_hour', '-'),
+                            'בוצע בפועל': (s.get('scanned_at') or '-')[:19],
+                            'מצלמה': s.get('camera_name', '-'),
+                            'פירוט האירוע': s.get('event_details') or '-',
+                            'נציג': s.get('scanned_by') or '-',
+                        })
+                    st.dataframe(pd.DataFrame(rows_cat), use_container_width=True, hide_index=True)
+                    if len(cat_items) > 30:
+                        st.caption(f"מציג 30 מתוך {len(cat_items)}")
+                    st.markdown("")
     if all_issues_scans:
         st.markdown("---")
         st.markdown("#### ⚠️ אירועים אחרונים בסריקות")
