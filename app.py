@@ -753,6 +753,194 @@ if page == "סריקה שוטפת":
                     st.rerun()
 
         st.stop()
+    def _get_night_shift_id(dt):
+    """
+    מחזיר מזהה מספרי ללילה הנוכחי, או None אם לא בשעות לילה.
+    לילה = 23:00 של יום מסוים עד 06:59 של היום שאחריו.
+    """
+    hour = dt.hour
+    if hour >= 23:
+        night_date = dt.date()
+    elif hour < 7:
+        night_date = (dt - timedelta(days=1)).date()
+    else:
+        return None
+    return int(night_date.strftime("%Y%m%d"))
+
+
+def _ensure_night_comm_slots(shift_id, dt):
+    """יוצר את 15 סלוטי בדיקת הקשר ללילה הנוכחי (23:30 עד 06:30) אם עוד לא קיימים."""
+    if not shift_id:
+        return
+    if dt.hour >= 23:
+        night_start = dt.date()
+    else:
+        night_start = (dt - timedelta(days=1)).date()
+
+    base = datetime.combine(night_start, time(23, 30))
+    for i in range(15):  # 15 סלוטים: 23:30, 00:00, ..., 06:30
+        slot_dt = base + timedelta(minutes=30 * i)
+        slot_str = slot_dt.strftime("%Y-%m-%d %H:%M")
+        db.create_comm_check_slot(shift_id, slot_str)
+
+
+def render_night_comm_check_widget():
+    """
+    רכיב בדיקת קשר עם פיקוח - מוצג רק בשעות לילה למוקדנים.
+    ממוקם בראש העמוד לגישה מהירה בלי גלילה.
+    """
+    if st.session_state.get('user_role') != 'operator':
+        return
+
+    _now = now_il()
+    night_shift_id = _get_night_shift_id(_now)
+    if night_shift_id is None:
+        return
+
+    _ensure_night_comm_slots(night_shift_id, _now)
+    slots = db.get_shift_comm_checks(night_shift_id)
+    if not slots:
+        return
+
+    now_str = _now.strftime("%Y-%m-%d %H:%M")
+    overdue_slots = [s for s in slots if s['scheduled_time'] <= now_str and not s.get('actual_time')]
+    upcoming_slots = [s for s in slots if s['scheduled_time'] > now_str]
+    completed = sum(1 for s in slots if s.get('actual_time'))
+    total = len(slots)
+
+    is_dark_widget = st.session_state.get('theme', 'light') == 'dark'
+
+    # ---- מצב 1: יש בדיקה בפיגור ----
+    if overdue_slots:
+        current_slot = overdue_slots[0]
+        try:
+            slot_dt = datetime.strptime(current_slot['scheduled_time'], "%Y-%m-%d %H:%M")
+            mins_late = int((_now - slot_dt).total_seconds() / 60)
+        except (ValueError, TypeError):
+            mins_late = 0
+
+        is_urgent = mins_late > 30
+
+        if is_urgent:
+            bg_color = '#7f1d1d' if is_dark_widget else '#fee2e2'
+            text_color = '#fecaca' if is_dark_widget else '#7f1d1d'
+            border_color = '#dc2626'
+            icon = '🚨'
+            title_text = f"בדיקת קשר בפיגור חמור! - {mins_late} דקות באיחור"
+        else:
+            bg_color = '#78350f' if is_dark_widget else '#fef3c7'
+            text_color = '#fef3c7' if is_dark_widget else '#78350f'
+            border_color = '#d97706'
+            icon = '⏰'
+            title_text = f"בדיקת קשר ממתינה - {mins_late} דק' מהזמן"
+
+        pulse_style = 'animation: pulse-alert 1.5s infinite;' if is_urgent else ''
+
+        st.markdown(f"""
+            <style>
+                @keyframes pulse-alert {{
+                    0%, 100% {{ box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }}
+                    50% {{ box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }}
+                }}
+            </style>
+            <div style="background-color: {bg_color}; border: 2px solid {border_color};
+                        border-radius: 10px; padding: 12px 18px; margin-bottom: 8px; {pulse_style}">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 1.8rem;">{icon}</span>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 700; font-size: 1.1rem; color: {text_color};">
+                            {title_text}
+                        </div>
+                        <div style="font-size: 0.9rem; color: {text_color}; opacity: 0.9; margin-top: 3px;">
+                            🕐 נדרש בשעה {current_slot['scheduled_time'][11:]} · ✅ בוצעו {completed}/{total} בדיקות
+                        </div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        bc1, bc2 = st.columns([4, 1])
+        if bc1.button(
+            f"✅ בצע בדיקת קשר של {current_slot['scheduled_time'][11:]} עכשיו",
+            key=f"cc_done_overdue_{current_slot['id']}",
+            type="primary",
+            use_container_width=True,
+        ):
+            db.mark_comm_check(night_shift_id, current_slot['scheduled_time'])
+            st.rerun()
+
+    # ---- מצב 2: יש בדיקה עתידית ----
+    elif upcoming_slots:
+        next_slot = upcoming_slots[0]
+        try:
+            slot_dt = datetime.strptime(next_slot['scheduled_time'], "%Y-%m-%d %H:%M")
+            mins_until = int((slot_dt - _now).total_seconds() / 60)
+        except (ValueError, TypeError):
+            mins_until = 0
+
+        bg_color = '#1e3a5f' if is_dark_widget else '#dbeafe'
+        text_color = '#dbeafe' if is_dark_widget else '#1e3a5f'
+        border_color = '#3b82f6'
+
+        st.markdown(f"""
+            <div style="background-color: {bg_color}; border: 1px solid {border_color};
+                        border-radius: 10px; padding: 12px 18px; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 1.6rem;">🌙</span>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 700; font-size: 1.05rem; color: {text_color};">
+                            בדיקת קשר עם פיקוח · הבאה: {next_slot['scheduled_time'][11:]}
+                        </div>
+                        <div style="font-size: 0.85rem; color: {text_color}; opacity: 0.85; margin-top: 3px;">
+                            ⏱️ בעוד {mins_until} דקות · ✅ בוצעו {completed}/{total}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    # ---- מצב 3: כל הבדיקות בוצעו ----
+    else:
+        bg_color = '#14532d' if is_dark_widget else '#dcfce7'
+        text_color = '#bbf7d0' if is_dark_widget else '#14532d'
+        border_color = '#16a34a'
+
+        st.markdown(f"""
+            <div style="background-color: {bg_color}; border: 1px solid {border_color};
+                        border-radius: 10px; padding: 12px 18px; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 1.6rem;">✅</span>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 700; font-size: 1.05rem; color: {text_color};">
+                            כל בדיקות הקשר של הלילה בוצעו! ({completed}/{total})
+                        </div>
+                        <div style="font-size: 0.85rem; color: {text_color}; opacity: 0.85; margin-top: 3px;">
+                            עבודה נהדרת · המשמרת עמדה בכל הבדיקות
+                        </div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    # ---- היסטוריה מתקפלת ----
+    with st.expander(f"📋 היסטוריית בדיקות הלילה ({completed}/{total})", expanded=False):
+        rows = []
+        for s in slots:
+            actual = s.get('actual_time', '') or ''
+            if actual:
+                status_txt = f"✅ בוצע בשעה {actual[11:19]}"
+            elif s['scheduled_time'] < now_str:
+                status_txt = "❌ הוחמצה"
+            else:
+                status_txt = "⏰ ממתינה"
+            rows.append({
+                'שעה מתוזמנת': s['scheduled_time'][11:],
+                'סטטוס': status_txt,
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    # ---- רכיב בדיקת קשר לילה (מוצג רק בשעות 23:00-06:59) ----
+    render_night_comm_check_widget()
+
     # ---- בנר תוכנית פעילה מהלו״ז ----
     render_current_plan_banner()
 
@@ -1501,7 +1689,65 @@ elif page == "לוח בקרה":
                 "דווח ע\"י": f.get('reported_by') or '-',
             })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+# ============ בדיקות קשר לילה ============
+    comm_checks_data = db.get_comm_checks_in_date_range(str(start_date), str(end_date))
+    if comm_checks_data:
+        st.markdown("---")
+        st.markdown("#### 🌙 בדיקות קשר במשמרות לילה")
 
+        total_checks = len(comm_checks_data)
+        done_checks = sum(1 for c in comm_checks_data if c.get('actual_time'))
+        missed_checks = 0
+        for c in comm_checks_data:
+            if not c.get('actual_time') and c['scheduled_time'] < now_il().strftime("%Y-%m-%d %H:%M"):
+                missed_checks += 1
+
+        compliance_comm_pct = round((done_checks / total_checks * 100), 1) if total_checks > 0 else 0
+
+        cc1, cc2, cc3, cc4 = st.columns(4)
+        cc1.metric("סה\"כ בדיקות מתוזמנות", total_checks)
+        cc2.metric("בדיקות שבוצעו", done_checks)
+        cc3.metric("בדיקות שהוחמצו", missed_checks)
+        cc4.metric("אחוז עמידה", f"{compliance_comm_pct}%")
+
+        # טבלת פירוט
+        with st.expander(f"📋 פירוט כל בדיקות הקשר בטווח ({total_checks} בדיקות)", expanded=False):
+            rows_cc = []
+            for c in comm_checks_data:
+                actual = c.get('actual_time', '') or ''
+                if actual:
+                    try:
+                        sched = datetime.strptime(c['scheduled_time'], "%Y-%m-%d %H:%M")
+                        act = datetime.strptime(actual[:19], "%Y-%m-%d %H:%M:%S")
+                        diff_min = int((act - sched).total_seconds() / 60)
+                        if diff_min < 0:
+                            timing = f"מוקדם ב-{abs(diff_min)} דק'"
+                        elif diff_min < 5:
+                            timing = f"✅ בזמן ({diff_min} דק')"
+                        else:
+                            timing = f"🟡 באיחור {diff_min} דק'"
+                    except (ValueError, TypeError):
+                        timing = '-'
+                    status_txt = f"✅ בוצע"
+                    actual_display = actual[11:19]
+                else:
+                    if c['scheduled_time'] < now_il().strftime("%Y-%m-%d %H:%M"):
+                        status_txt = "❌ הוחמצה"
+                        timing = '-'
+                    else:
+                        status_txt = "⏰ ממתינה"
+                        timing = '-'
+                    actual_display = '-'
+
+                rows_cc.append({
+                    'תאריך': c['scheduled_time'][:10],
+                    'שעה מתוזמנת': c['scheduled_time'][11:],
+                    'בוצע בפועל': actual_display,
+                    'סטטוס': status_txt,
+                    'עמידה בזמן': timing,
+                })
+
+            st.dataframe(pd.DataFrame(rows_cc), use_container_width=True, hide_index=True)
     st.markdown("---")
     st.markdown("#### 📥 ייצוא נתונים")
     ec1, ec2 = st.columns(2)
