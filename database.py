@@ -81,6 +81,7 @@ def init_db():
                 scanned_by TEXT,
                 status TEXT DEFAULT 'ok',
                 event_details TEXT,
+                event_category TEXT,
                 FOREIGN KEY (camera_id) REFERENCES cameras(id),
                 UNIQUE(camera_id, scheduled_hour)
             );
@@ -292,7 +293,8 @@ def init_db():
             cursor.execute("ALTER TABLE scans ADD COLUMN status TEXT DEFAULT 'ok'")
         if 'event_details' not in existing_cols:
             cursor.execute("ALTER TABLE scans ADD COLUMN event_details TEXT")
-
+        if 'event_category' not in existing_cols:
+            cursor.execute("ALTER TABLE scans ADD COLUMN event_category TEXT")
         cursor.execute("PRAGMA table_info(faults)")
         existing_fault_cols = {row['name'] for row in cursor.fetchall()}
         if 'reported_by' not in existing_fault_cols:
@@ -1083,10 +1085,10 @@ def get_faulty_camera_ids():
 
 
 # ==================== סריקות ישנות (v1) - נשאר לתאימות ====================
-def mark_scan(camera_id, scheduled_hour, scanned_by="", status="ok", event_details=None):
+def mark_scan(camera_id, scheduled_hour, scanned_by="", status="ok", event_details=None, event_category=None):
     """
     מסמן סריקה כבוצעה. **נעילה מעריכה** - אם הסריקה כבר סומנה בעבר, לא ניתן לשנות אותה.
-    זה מבטיח שהתיעוד של השעה המדויקת יישאר לצורך מעקב אמיתי.
+    event_category: 'security' | 'dumping' | 'safety' | 'other' | None
     """
     with get_conn() as conn:
         existing = conn.execute(
@@ -1094,15 +1096,15 @@ def mark_scan(camera_id, scheduled_hour, scanned_by="", status="ok", event_detai
             (camera_id, scheduled_hour),
         ).fetchone()
         if existing:
-            # כבר סומן - אין להחליף (נעילה)
             return False
         conn.execute(
-            "INSERT INTO scans (camera_id, scheduled_hour, scanned_at, scanned_by, status, event_details) "
-            "VALUES (?, ?, ?, ?, ?, ?) "
+            "INSERT INTO scans (camera_id, scheduled_hour, scanned_at, scanned_by, status, event_details, event_category) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(camera_id, scheduled_hour) DO UPDATE SET "
             "scanned_at=excluded.scanned_at, scanned_by=excluded.scanned_by, "
-            "status=excluded.status, event_details=excluded.event_details",
-            (camera_id, scheduled_hour, _now_iso(), scanned_by, status, event_details),
+            "status=excluded.status, event_details=excluded.event_details, "
+            "event_category=excluded.event_category",
+            (camera_id, scheduled_hour, _now_iso(), scanned_by, status, event_details, event_category),
         )
         conn.commit()
         return True
