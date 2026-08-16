@@ -1581,13 +1581,11 @@ def infer_scanner_for_hour(scheduled_hour_str):
     return 'לא ידוע'
 
 
-def scan_and_record_missed_from_plans(current_datetime, grace_minutes=15):
+def scan_and_record_missed_from_plans(current_datetime, grace_minutes=15, current_user=None):
     """
-    סורק את כל תוכניות הלו"ז ומתעד סריקות שהוחמצו:
-    - עבור כל תוכנית שהסתיימה
-    - עבור כל מצלמה בתוכנית
-    - אם לא נסרקה בטווח השעות של התוכנית
-    - מתעד כהחמצה עם שם הנציג האחראי
+    סורק תוכניות שהסתיימו ומתעד סריקות שהוחמצו.
+    אם current_user מסופק (המשתמש המחובר עכשיו) - ההחמצה נרשמת עליו.
+    אחרת - נופל אחורה לניחוש לפי מי סרק באותה שעה.
     """
     from datetime import datetime as _dt, timedelta as _td
 
@@ -1600,45 +1598,38 @@ def scan_and_record_missed_from_plans(current_datetime, grace_minutes=15):
     recorded_count = 0
 
     for plan in all_plans:
-        # בדיקה: התוכנית פעילה היום? (לפי day_of_week)
         days = plan.get('days_of_week', 'all')
         if days != 'all':
             allowed_days = days.split(',')
             if str(now_dt.weekday()) not in allowed_days:
-                # בדוק את יום אתמול (אם התוכנית לילית)
                 yesterday = now_dt - _td(days=1)
                 if str(yesterday.weekday()) not in allowed_days:
                     continue
 
-        # בדוק את השעות של התוכנית - האם הסתיימה?
         start_time = plan.get('start_time', '')
         end_time = plan.get('end_time', '')
         if not start_time or not end_time:
             continue
 
-        # חלון זמן שהסתיים ב-24 שעות אחרונות
-        for days_back in range(2):  # 2 ימים אחורה
+        for days_back in range(2):
             check_date = (now_dt - _td(days=days_back)).date()
             try:
                 start_dt = _dt.combine(check_date, _dt.strptime(start_time, "%H:%M").time())
                 end_dt = _dt.combine(check_date, _dt.strptime(end_time, "%H:%M").time())
-                if end_dt < start_dt:  # cross-midnight
+                if end_dt < start_dt:
                     end_dt += _td(days=1)
             except (ValueError, TypeError):
                 continue
 
-            # רק אם החלון כבר הסתיים + עברה תקופת חסד
             if end_dt + _td(minutes=grace_minutes) >= now_dt:
                 continue
 
-            # בדוק כל מצלמה בתוכנית
             for cam_id in plan.get('camera_ids', []):
                 if cam_id not in cam_map or cam_id in faulty_ids:
                     continue
 
                 cam = cam_map[cam_id]
 
-                # בדוק אם המצלמה נסרקה במהלך החלון (בכל אחת מהשעות)
                 current_check = start_dt.replace(minute=0, second=0, microsecond=0)
                 was_scanned = False
                 first_hour_key = None
@@ -1659,8 +1650,12 @@ def scan_and_record_missed_from_plans(current_datetime, grace_minutes=15):
                     current_check += _td(hours=1)
 
                 if not was_scanned and first_hour_key:
-                    # מתעד כהחמצה
-                    scanner = infer_scanner_for_hour(first_hour_key)
+                    # קדימות: המשתמש המחובר עכשיו → מי שסרק באותה שעה → 'לא ידוע'
+                    if current_user:
+                        scanner = current_user
+                    else:
+                        scanner = infer_scanner_for_hour(first_hour_key)
+
                     added = record_missed_scan(
                         camera_id=cam_id,
                         camera_name=cam['name'],
