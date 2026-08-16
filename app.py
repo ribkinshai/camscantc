@@ -1082,16 +1082,21 @@ def render_night_comm_check_widget():
             render_row(cam, "r")
 
 
+st.caption("אין תוצאות")
+        for cam in filtered_rotating:
+            render_row(cam, "r")
+
+
 # ============ עמוד: לוח בקרה ============
 elif page == "לוח בקרה":
     _is_manager = st.session_state.get('user_role') == 'manager'
-
     if _is_manager:
         st.header("📊 דשבורד מנהלת · מוקד 106")
         st.caption(f"תמונת מצב חיה של פעילות המוקד · מחוברת: {st.session_state.get('user_name', '')}")
     else:
         st.header("לוח בקרה")
-# ---- בנר התראה: סריקות שהוחמצו ----
+
+    # ---- בנר התראה: סריקות שהוחמצו ----
     render_missed_scans_banner()
 
     fc1, fc2, fc3 = st.columns([2, 2, 1])
