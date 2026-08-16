@@ -753,7 +753,7 @@ if page == "סריקה שוטפת":
                     st.rerun()
 
         st.stop()
-    def _get_night_shift_id(dt):
+def _get_night_shift_id(dt):
     """
     מחזיר מזהה מספרי ללילה הנוכחי, או None אם לא בשעות לילה.
     לילה = 23:00 של יום מסוים עד 06:59 של היום שאחריו.
