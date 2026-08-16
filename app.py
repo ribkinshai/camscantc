@@ -278,6 +278,7 @@ with st.sidebar:
 
     if _user_role == 'manager':
         _nav_button("לוח בקרה", "📊 לוח בקרה")
+        _nav_button("לוז סריקות", "📅 לו״ז סריקות")
         _nav_button("נקודות חמות", "🔥 נקודות חמות")
         _nav_button("אתרי בנייה", "🏗️ אתרי בנייה")
 
@@ -349,7 +350,58 @@ if user_info:
 if st.sidebar.button("🔒 יציאה מהמערכת", use_container_width=True, key="logout_btn"):
     auth.logout()
     st.rerun()
+def render_current_plan_banner():
+    """
+    מציג בנר עם התוכנית הפעילה לשעה הנוכחית (מתוך הלו״ז שהמנהלת הגדירה).
+    בזמן אמת - מסתנכרן עם השעה בפועל.
+    """
+    _now_for_plan = now_il()
+    active_plans = db.get_active_scan_plans_for_datetime(_now_for_plan)
 
+    if not active_plans:
+        return  # אין תוכנית פעילה כרגע
+
+    all_cams_for_plan = db.get_all_cameras()
+    cam_map = {c['id']: c for c in all_cams_for_plan}
+
+    is_dark_local = st.session_state.get('theme', 'light') == 'dark'
+
+    for plan in active_plans:
+        priority = plan.get('priority', 'medium')
+        priority_colors = {'high': '#dc2626', 'medium': '#d97706', 'low': '#16a34a'}
+        priority_icons = {'high': '🔴', 'medium': '🟠', 'low': '🟢'}
+        border_color = priority_colors.get(priority, '#d97706')
+        icon = priority_icons.get(priority, '📋')
+
+        banner_bg = '#1e293b' if is_dark_local else '#f0f9ff'
+        text_color = '#e2e8f0' if is_dark_local else '#0c4a6e'
+
+        cams_in_plan = [cam_map[cid] for cid in plan.get('camera_ids', []) if cid in cam_map]
+
+        st.markdown(f"""
+        <div style="background-color: {banner_bg}; border: 2px solid {border_color};
+                    border-radius: 10px; padding: 14px 18px; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                <span style="font-size: 1.5rem;">{icon}📅</span>
+                <div style="flex: 1;">
+                    <div style="font-weight: 700; font-size: 1.15rem; color: {text_color};">
+                        תוכנית פעילה: {plan['name']}
+                    </div>
+                    <div style="font-size: 0.85rem; color: {text_color}; opacity: 0.85; margin-top: 3px;">
+                        ⏰ {plan.get('start_time', '')} - {plan.get('end_time', '')}  ·
+                        🎥 {len(cams_in_plan)} מצלמות בתוכנית
+                    </div>
+                </div>
+            </div>
+            {f'<div style="font-size: 0.9rem; color: {text_color}; margin-top: 6px; padding-top: 6px; border-top: 1px solid {border_color}44;"><b>📝 דגשים:</b> {plan.get("description")}</div>' if plan.get('description') else ''}
+        </div>
+        """, unsafe_allow_html=True)
+
+        if cams_in_plan:
+            with st.expander(f"📋 רשימת המצלמות בתוכנית ({len(cams_in_plan)})", expanded=False):
+                for cam in cams_in_plan:
+                    area = cam.get('area', '') or '-'
+                    st.markdown(f"- **{cam['name']}**  ·  🗂️ {area}")
 def render_missed_scans_banner():
     """
     מציג בנר בולט עם מספר הסריקות שהוחמצו + כפתור איפוס.
@@ -565,6 +617,9 @@ if page == "סריקה שוטפת":
                     st.rerun()
 
         st.stop()
+    # ---- בנר תוכנית פעילה מהלו״ז ----
+    render_current_plan_banner()
+
     # ---- בנר התראה: סריקות שהוחמצו ----
     render_missed_scans_banner()
 
@@ -998,6 +1053,207 @@ elif page == "לוח בקרה":
 
 
 # ============ עמוד: נקודות חמות ============
+elif page == "לוז סריקות":
+    if st.session_state.get('user_role') != 'manager':
+        st.error("עמוד זה זמין למנהלת בלבד")
+        st.stop()
+
+    st.header("📅 לו״ז סריקות")
+    st.caption("הגדרת חלונות זמן קבועים שבהם יש לסרוק מצלמות ספציפיות · הלו״ז מוצג למוקדן בזמן אמת")
+
+    all_plans = db.get_all_scheduled_plans(active_only=True)
+    all_cams_for_plan = db.get_all_cameras()
+
+    # ---- טופס עריכה/הוספה ----
+    editing_id = st.session_state.get('editing_plan_id')
+    adding_new = st.session_state.get('adding_new_plan', False)
+
+    if editing_id or adding_new:
+        plan = next((p for p in all_plans if p['id'] == editing_id), None) if editing_id else {}
+        title = f"✏️ עריכת תוכנית: {plan.get('name', '')}" if editing_id else "➕ הוספת תוכנית לו״ז"
+        st.markdown(f"### {title}")
+
+        with st.form(f"plan_form_{editing_id or 'new'}", clear_on_submit=False):
+            name = st.text_input("שם התוכנית *", value=plan.get('name', ''),
+                                 placeholder="למשל: בוקר - מוסדות חינוך")
+            description = st.text_area("תיאור (מה לחפש/דגשים)",
+                                        value=plan.get('description', ''),
+                                        placeholder="ונדליזם, התקהלות, מפגעי בטיחות...",
+                                        height=60)
+
+            tc1, tc2 = st.columns(2)
+            start_time = tc1.text_input("שעת התחלה (HH:MM) *",
+                                         value=plan.get('start_time', '07:00'),
+                                         placeholder="07:00")
+            end_time = tc2.text_input("שעת סיום (HH:MM) *",
+                                       value=plan.get('end_time', '09:00'),
+                                       placeholder="09:00")
+            st.caption("💡 טיפ: לחלון שחוצה חצות (למשל לילה 23:00-05:00) - הזן start=23:00, end=05:00")
+
+            priority = st.selectbox(
+                "עדיפות",
+                ['high', 'medium', 'low'],
+                format_func=lambda x: {'high': '🔴 גבוהה', 'medium': '🟠 בינונית', 'low': '🟢 נמוכה'}[x],
+                index=['high', 'medium', 'low'].index(plan.get('priority', 'medium')),
+            )
+
+            # ---- ימי שבוע ----
+            st.markdown("**📆 ימי פעילות**")
+            days_str = plan.get('days_of_week', 'all')
+            all_days_selected = (days_str == 'all')
+            selected_days_set = set() if all_days_selected else set(days_str.split(','))
+
+            all_days_check = st.checkbox("פעיל בכל ימי השבוע", value=all_days_selected)
+
+            selected_days = []
+            if not all_days_check:
+                st.caption("סמן את הימים שבהם התוכנית פעילה:")
+                dc1, dc2, dc3, dc4, dc5, dc6, dc7 = st.columns(7)
+                day_map = [
+                    ('6', 'א׳', dc1),  # Sunday = 6 in Python weekday()
+                    ('0', 'ב׳', dc2),  # Monday = 0
+                    ('1', 'ג׳', dc3),
+                    ('2', 'ד׳', dc4),
+                    ('3', 'ה׳', dc5),
+                    ('4', 'ו׳', dc6),
+                    ('5', 'ש׳', dc7),
+                ]
+                for day_num, day_label, col in day_map:
+                    if col.checkbox(day_label, value=day_num in selected_days_set,
+                                    key=f"day_{editing_id}_{day_num}"):
+                        selected_days.append(day_num)
+
+            # ---- שיוך מצלמות ----
+            st.markdown("**🎥 מצלמות בתוכנית**")
+
+            # אופציה למילוי לפי אזור
+            all_areas_plan = sorted(set(c.get('area', '') for c in all_cams_for_plan if c.get('area')))
+            selected_area_bulk = st.selectbox(
+                "💡 מלא אוטומטית לפי אזור (אופציונלי)",
+                ["-- בחר אזור להוספה מהירה --"] + all_areas_plan,
+                key=f"area_bulk_{editing_id or 'new'}",
+            )
+
+            cam_display = {f"{c['name']} ({c.get('area', '') or 'לא ידוע'})": c['id']
+                           for c in all_cams_for_plan}
+            current_cam_ids = set(plan.get('camera_ids', []))
+
+            if selected_area_bulk != "-- בחר אזור להוספה מהירה --":
+                # הוספת כל המצלמות באזור לבחירה
+                area_cam_ids = {c['id'] for c in all_cams_for_plan if c.get('area') == selected_area_bulk}
+                current_cam_ids = current_cam_ids | area_cam_ids
+
+            current_cam_labels = [lbl for lbl, cid in cam_display.items() if cid in current_cam_ids]
+
+            selected_cam_labels = st.multiselect(
+                f"בחר מצלמות ({len(current_cam_labels)} נבחרו)",
+                list(cam_display.keys()),
+                default=current_cam_labels,
+            )
+            selected_cam_ids = [cam_display[l] for l in selected_cam_labels]
+
+            bc1, bc2 = st.columns(2)
+            save = bc1.form_submit_button("💾 שמור", type="primary", use_container_width=True)
+            cancel = bc2.form_submit_button("↩️ ביטול", use_container_width=True)
+
+            if save:
+                if not name.strip():
+                    st.error("יש למלא שם")
+                elif not start_time.strip() or not end_time.strip():
+                    st.error("יש למלא שעת התחלה וסיום")
+                else:
+                    # validate time format
+                    import re
+                    time_pattern = r'^\d{2}:\d{2}$'
+                    if not re.match(time_pattern, start_time.strip()) or not re.match(time_pattern, end_time.strip()):
+                        st.error("פורמט זמן שגוי - השתמש ב-HH:MM (למשל 07:00)")
+                    else:
+                        days_value = 'all' if all_days_check else (','.join(selected_days) if selected_days else 'all')
+                        if editing_id:
+                            db.update_scheduled_plan(
+                                editing_id,
+                                name=name.strip(),
+                                description=description.strip(),
+                                start_time=start_time.strip(),
+                                end_time=end_time.strip(),
+                                days_of_week=days_value,
+                                priority=priority,
+                                camera_ids=selected_cam_ids,
+                            )
+                            st.success("התוכנית עודכנה")
+                        else:
+                            db.add_scheduled_plan(
+                                name=name.strip(),
+                                description=description.strip(),
+                                start_time=start_time.strip(),
+                                end_time=end_time.strip(),
+                                days_of_week=days_value,
+                                priority=priority,
+                                camera_ids=selected_cam_ids,
+                            )
+                            st.success("התוכנית נוספה")
+                        st.session_state.pop('editing_plan_id', None)
+                        st.session_state.pop('adding_new_plan', None)
+                        st.rerun()
+
+            if cancel:
+                st.session_state.pop('editing_plan_id', None)
+                st.session_state.pop('adding_new_plan', None)
+                st.rerun()
+
+        st.stop()
+
+    # כפתור הוספה
+    if st.button("➕ הוסף תוכנית לו״ז חדשה", type="primary"):
+        st.session_state['adding_new_plan'] = True
+        st.rerun()
+
+    # ---- רשימת תוכניות ----
+    if not all_plans:
+        st.info(
+            "אין תוכניות לו״ז מוגדרות עדיין.\n\n"
+            "**דוגמאות לתוכניות שכדאי להגדיר:**\n"
+            "- בוקר (07:00-09:00) - מוסדות חינוך + צירי תנועה\n"
+            "- עומס בוקר (09:00-11:00) - נקודות חמות\n"
+            "- ערב (16:00-20:00) - פארקים וגינות משחקים\n"
+            "- לילה (23:00-05:00) - נקודות חמות + אתרי בנייה"
+        )
+    else:
+        st.markdown(f"### 📋 תוכניות פעילות · {len(all_plans)}")
+
+        priority_icons = {'high': '🔴', 'medium': '🟠', 'low': '🟢'}
+        priority_labels = {'high': 'גבוהה', 'medium': 'בינונית', 'low': 'נמוכה'}
+        day_labels_map = {'6': 'א׳', '0': 'ב׳', '1': 'ג׳', '2': 'ד׳', '3': 'ה׳', '4': 'ו׳', '5': 'ש׳'}
+
+        for plan in all_plans:
+            icon = priority_icons.get(plan.get('priority', 'medium'), '⚪')
+            plabel = priority_labels.get(plan.get('priority', 'medium'), '')
+
+            days_str = plan.get('days_of_week', 'all')
+            if days_str == 'all':
+                days_display = 'כל ימי השבוע'
+            else:
+                days_list = days_str.split(',')
+                days_display = ' · '.join([day_labels_map.get(d, d) for d in days_list])
+
+            cams_count = len(plan.get('camera_ids', []))
+
+            with st.container(border=True):
+                st.markdown(f"### {icon} {plan['name']}")
+                st.caption(
+                    f"⏰ {plan.get('start_time', '?')} - {plan.get('end_time', '?')}  ·  "
+                    f"📆 {days_display}  ·  עדיפות: {plabel}  ·  🎥 {cams_count} מצלמות"
+                )
+                if plan.get('description'):
+                    st.markdown(f"**📝 תיאור:** {plan.get('description')}")
+
+                ac1, ac2, _ac3 = st.columns([1, 1, 4])
+                if ac1.button("✏️ ערוך", key=f"edit_plan_{plan['id']}"):
+                    st.session_state['editing_plan_id'] = plan['id']
+                    st.rerun()
+                if ac2.button("🗑️ הסר", key=f"del_plan_{plan['id']}"):
+                    db.delete_scheduled_plan(plan['id'])
+                    st.rerun()
 elif page == "נקודות חמות":
     _is_manager_hs = st.session_state.get('user_role') == 'manager'
     st.header("🔥 נקודות חמות")
