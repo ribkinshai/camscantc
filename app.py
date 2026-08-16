@@ -848,7 +848,104 @@ elif page == "לוח בקרה":
             st.dataframe(top_cams, use_container_width=True, hide_index=True)
     else:
         st.info("אין נתוני סריקה בטווח הנבחר")
+    # ============ טבלת סריקות מפורטת - כל הסריקות עם שעת ביצוע ============
+    if all_scans:
+        st.markdown("---")
+        st.markdown("#### 🕐 יומן סריקות מפורט")
+        st.caption(f"כל הסריקות בטווח - עם שעת הביצוע המדויקת · סה\"כ {len(all_scans)} סריקות")
 
+        filter_scanner_col, filter_status_col, filter_cam_col = st.columns([2, 2, 3])
+
+        # סינון לפי נציג
+        all_scanners = sorted(set(s.get('scanned_by') or '(לא ידוע)' for s in all_scans))
+        selected_scanner = filter_scanner_col.selectbox(
+            "👤 סנן לפי נציג",
+            ["כל הנציגים"] + all_scanners,
+            key="dash_scanner_filter",
+        )
+
+        # סינון לפי סטטוס
+        selected_scan_status = filter_status_col.selectbox(
+            "סטטוס",
+            ["הכל", "✅ תקין בלבד", "⚠️ לא תקין בלבד"],
+            key="dash_status_filter",
+        )
+
+        # חיפוש מצלמה
+        camera_search = filter_cam_col.text_input(
+            "🔍 חיפוש מצלמה",
+            "",
+            placeholder="הקלד שם או חלק ממנו...",
+            key="dash_cam_search",
+        )
+
+        # החלת הסינונים
+        filtered_scans = all_scans
+        if selected_scanner != "כל הנציגים":
+            if selected_scanner == '(לא ידוע)':
+                filtered_scans = [s for s in filtered_scans if not s.get('scanned_by')]
+            else:
+                filtered_scans = [s for s in filtered_scans if s.get('scanned_by') == selected_scanner]
+        if selected_scan_status == "✅ תקין בלבד":
+            filtered_scans = [s for s in filtered_scans if (s.get('status') or 'ok') != 'issue']
+        elif selected_scan_status == "⚠️ לא תקין בלבד":
+            filtered_scans = [s for s in filtered_scans if s.get('status') == 'issue']
+        if camera_search.strip():
+            q = camera_search.strip().lower()
+            filtered_scans = [s for s in filtered_scans if q in (s.get('camera_name') or '').lower()]
+
+        st.caption(f"מציג: {len(filtered_scans)} סריקות")
+
+        # מיון לפי שעת ביצוע (החדשות למעלה)
+        sorted_scans = sorted(
+            filtered_scans,
+            key=lambda x: x.get('scanned_at') or x.get('scheduled_hour', ''),
+            reverse=True,
+        )
+
+        # בניית טבלה עם שעה מדויקת ופער זמן
+        rows = []
+        for s in sorted_scans[:100]:  # הגבלה של 100 שורות תצוגה - למקרה של הרבה נתונים
+            status = s.get('status') or 'ok'
+            scheduled = s.get('scheduled_hour', '')
+            scanned_at = s.get('scanned_at') or ''
+
+            # חישוב פער זמן: כמה זמן אחרי השעה המתוזמנת נסרק בפועל
+            time_diff_display = '-'
+            if scheduled and scanned_at:
+                try:
+                    sched_dt = datetime.strptime(scheduled, "%Y-%m-%d %H:%M")
+                    actual_dt = datetime.strptime(scanned_at[:19], "%Y-%m-%d %H:%M:%S")
+                    diff_minutes = int((actual_dt - sched_dt).total_seconds() / 60)
+                    if diff_minutes < 0:
+                        time_diff_display = f"⏰ {abs(diff_minutes)} דק' מוקדם"
+                    elif diff_minutes < 15:
+                        time_diff_display = f"✅ בזמן ({diff_minutes} דק')"
+                    elif diff_minutes < 60:
+                        time_diff_display = f"🟡 {diff_minutes} דק' באיחור"
+                    else:
+                        hours = diff_minutes // 60
+                        mins = diff_minutes % 60
+                        time_diff_display = f"🔴 {hours}:{mins:02d} באיחור"
+                except (ValueError, TypeError):
+                    time_diff_display = '-'
+
+            rows.append({
+                "שעה מתוזמנת": scheduled,
+                "בוצע בפועל": scanned_at[:19] if scanned_at else '-',
+                "פער זמן": time_diff_display,
+                "שם המצלמה": s.get('camera_name', '-'),
+                "סטטוס": "⚠️ לא תקין" if status == 'issue' else "✅ תקין",
+                "נציג": s.get('scanned_by') or '-',
+                "פירוט": s.get('event_details') or '-',
+            })
+
+        if rows:
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            if len(sorted_scans) > 100:
+                st.caption(f"⚠️ מציג 100 מתוך {len(sorted_scans)} תוצאות. צמצם סינון או ייצא לקובץ CSV לתצוגה מלאה.")
+        else:
+            st.info("אין סריקות התואמות לסינון")
     if all_issues_scans:
         st.markdown("---")
         st.markdown("#### ⚠️ אירועים אחרונים בסריקות")
