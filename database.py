@@ -247,7 +247,18 @@ def init_db():
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (moked_user_id) REFERENCES users(id)
             );
-
+            CREATE TABLE IF NOT EXISTS scheduled_scan_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                description TEXT,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                days_of_week TEXT DEFAULT 'all',
+                camera_ids_json TEXT DEFAULT '[]',
+                priority TEXT DEFAULT 'medium',
+                active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
             CREATE TABLE IF NOT EXISTS audit_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
@@ -1203,3 +1214,106 @@ def refresh_operators():
                 pass
         conn.commit()
         return len(real_operators)
+# ==================== לו"ז סריקות דינמי ====================
+def add_scheduled_plan(name, start_time, end_time, camera_ids=None,
+                       days_of_week='all', priority='medium',
+                       description='', active=True):
+    """
+    יוצר חלון זמן חדש בלו"ז הסריקות.
+    days_of_week: 'all' או מחרוזת ימי שבוע מופרדת בפסיקים ('0,1,2' - Mon=0, Sun=6)
+    """
+    with get_conn() as conn:
+        try:
+            cur = conn.execute(
+                "INSERT INTO scheduled_scan_plans "
+                "(name, description, start_time, end_time, days_of_week, "
+                "camera_ids_json, priority, active) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (name, description, start_time, end_time, days_of_week,
+                 json.dumps(camera_ids or []), priority, 1 if active else 0),
+            )
+            conn.commit()
+            return cur.lastrowid
+        except sqlite3.IntegrityError:
+            return None
+
+
+def get_all_scheduled_plans(active_only=True):
+    """מחזיר את כל התוכניות בלו"ז"""
+    with get_conn() as conn:
+        q = "SELECT * FROM scheduled_scan_plans"
+        if active_only:
+            q += " WHERE active = 1"
+        q += " ORDER BY start_time ASC"
+        rows = conn.execute(q).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d['camera_ids'] = json.loads(d.get('camera_ids_json') or '[]')
+            result.append(d)
+        return result
+
+
+def update_scheduled_plan(plan_id, **kwargs):
+    with get_conn() as conn:
+        updates, params = [], []
+        for k, v in kwargs.items():
+            if k == 'camera_ids':
+                updates.append("camera_ids_json = ?")
+                params.append(json.dumps(v or []))
+            elif k in ['name', 'description', 'start_time', 'end_time',
+                       'days_of_week', 'priority']:
+                updates.append(f"{k} = ?")
+                params.append(v)
+            elif k == 'active':
+                updates.append("active = ?")
+                params.append(1 if v else 0)
+        if updates:
+            params.append(plan_id)
+            conn.execute(
+                f"UPDATE scheduled_scan_plans SET {', '.join(updates)} WHERE id = ?",
+                params,
+            )
+            conn.commit()
+
+
+def delete_scheduled_plan(plan_id):
+    with get_conn() as conn:
+        conn.execute("UPDATE scheduled_scan_plans SET active = 0 WHERE id = ?", (plan_id,))
+        conn.commit()
+
+
+def get_active_scan_plans_for_datetime(dt):
+    """
+    מחזיר את כל התוכניות שרלוונטיות לרגע נתון (שעה + יום שבוע).
+    """
+    current_time_str = dt.strftime("%H:%M")
+    current_weekday = str(dt.weekday())  # Python: Mon=0, Sun=6
+
+    all_plans = get_all_scheduled_plans(active_only=True)
+    matching = []
+
+    for p in all_plans:
+        # בדיקת יום שבוע
+        days = p.get('days_of_week', 'all')
+        if days and days != 'all':
+            allowed_days = days.split(',')
+            if current_weekday not in allowed_days:
+                continue
+
+        # בדיקת חלון זמן
+        start = p.get('start_time', '')
+        end = p.get('end_time', '')
+        if not start or not end:
+            continue
+
+        if start <= end:
+            # חלון רגיל (לא חוצה חצות)
+            if start <= current_time_str < end:
+                matching.append(p)
+        else:
+            # חלון שחוצה חצות (למשל 23:00-07:00)
+            if current_time_str >= start or current_time_str < end:
+                matching.append(p)
+
+    return matching
