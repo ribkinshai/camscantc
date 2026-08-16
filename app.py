@@ -1074,7 +1074,7 @@ def render_night_comm_check_widget():
             st.caption("אין תוצאות")
         for cam in filtered_central:
             render_row(cam, "c")
-with col2:
+    with col2:
         st.markdown(f"**🔄 בסבב** · {len(filtered_rotating)}")
         if not filtered_rotating and search.strip():
             st.caption("אין תוצאות")
