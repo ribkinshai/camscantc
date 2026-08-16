@@ -1083,7 +1083,7 @@ def render_night_comm_check_widget():
 
 
 # ============ עמוד: לוח בקרה ============
-    elif page == "לוח בקרה":
+elif page == "לוח בקרה":
     _is_manager = st.session_state.get('user_role') == 'manager'
 
     if _is_manager:
