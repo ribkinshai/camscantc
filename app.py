@@ -350,7 +350,67 @@ if st.sidebar.button("🔒 יציאה מהמערכת", use_container_width=True,
     auth.logout()
     st.rerun()
 
+def render_missed_scans_banner():
+    """
+    מציג בנר בולט עם מספר הסריקות שהוחמצו + פירוט להרחבה.
+    מוצג רק אם יש סריקות שהוחמצו ב-8 השעות האחרונות.
+    """
+    _now_for_check = now_il()
+    missed = sch.get_missed_scans(_now_for_check, lookback_hours=8)
 
+    if not missed:
+        return  # אין החמצות - לא מציג כלום
+
+    # קיבוץ לפי שעה
+    by_hour = {}
+    for hour_key_val, cam in missed:
+        if hour_key_val not in by_hour:
+            by_hour[hour_key_val] = []
+        by_hour[hour_key_val].append(cam)
+
+    total_missed = len(missed)
+    unique_cams = len(set(c['id'] for _, c in missed))
+    is_dark_local = st.session_state.get('theme', 'light') == 'dark'
+    banner_bg = '#7f1d1d' if is_dark_local else '#fee2e2'
+    banner_border = '#dc2626'
+    banner_text = '#fef2f2' if is_dark_local else '#7f1d1d'
+    detail_bg = '#450a0a' if is_dark_local else '#fef2f2'
+
+    st.markdown(f"""
+    <style>
+        @keyframes pulse-alert {{
+            0%, 100% {{ box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }}
+            50% {{ box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }}
+        }}
+        .missed-banner {{
+            animation: pulse-alert 2s infinite;
+        }}
+    </style>
+    <div class="missed-banner" style="background-color: {banner_bg};
+                border: 2px solid {banner_border};
+                border-radius: 10px; padding: 16px 20px; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 2rem;">🚨</span>
+            <div style="flex: 1;">
+                <div style="font-weight: 700; font-size: 1.15rem; color: {banner_text};">
+                    התראה: {total_missed} סריקות לא בוצעו בזמן!
+                </div>
+                <div style="font-size: 0.9rem; color: {banner_text}; margin-top: 4px;">
+                    {unique_cams} מצלמות שונות · פורש ב-{len(by_hour)} שעות
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander(f"📋 פירוט כל {total_missed} הסריקות שהוחמצו", expanded=False):
+        for hour_key_val in sorted(by_hour.keys(), reverse=True):
+            cams_in_hour = by_hour[hour_key_val]
+            st.markdown(f"**🕐 {hour_key_val}** · {len(cams_in_hour)} מצלמות")
+            for cam in cams_in_hour:
+                area = cam.get('area', '') or '-'
+                st.markdown(f"- {cam['name']}  ·  🗂️ {area}")
+            st.markdown("")
 page = st.session_state['current_page']
 now = now_il()
 current_hour = now.replace(minute=0, second=0, microsecond=0)
@@ -459,7 +519,11 @@ if page == "סריקה שוטפת":
                     st.rerun()
 
         st.stop()
+    # ---- בנר התראה: סריקות שהוחמצו ----
+    render_missed_scans_banner()
 
+    # ---- תצוגה רגילה ----
+    central, rotating = sch.get_cameras_for_hour(current_hour, include_faulty=False)
     # ---- תצוגה רגילה ----
     central, rotating = sch.get_cameras_for_hour(current_hour, include_faulty=False)
     scanned_now = db.get_scans_for_hour(current_hour_key)
@@ -602,7 +666,10 @@ elif page == "לוח בקרה":
         st.caption(f"תמונת מצב חיה של פעילות המוקד · מחוברת: {st.session_state.get('user_name', '')}")
     else:
         st.header("לוח בקרה")
+# ---- בנר התראה: סריקות שהוחמצו ----
+    render_missed_scans_banner()
 
+    fc1, fc2, fc3 = st.columns([2, 2, 1])
     fc1, fc2, fc3 = st.columns([2, 2, 1])
 
     period_options = {
