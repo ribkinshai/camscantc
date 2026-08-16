@@ -1328,3 +1328,153 @@ def get_comm_checks_in_date_range(start_date, end_date):
             (start_date, end_date),
         ).fetchall()
         return [dict(r) for r in rows]
+# ==================== גיבוי ושחזור ====================
+import os
+from pathlib import Path
+
+BACKUP_DIR = 'backups'
+
+
+def _get_all_table_names():
+    """מחזיר את כל שמות הטבלאות במסד"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+        return [r['name'] for r in rows]
+
+
+def create_backup():
+    """
+    יוצר גיבוי JSON מלא של כל הטבלאות במסד.
+    מחזיר: (backup_data_as_dict, filename_suggested)
+    """
+    from datetime import datetime as _dt
+    backup_data = {
+        'version': '1.0',
+        'created_at': _dt.now().isoformat(),
+        'tables': {},
+    }
+
+    with get_conn() as conn:
+        for table_name in _get_all_table_names():
+            rows = conn.execute(f"SELECT * FROM {table_name}").fetchall()
+            backup_data['tables'][table_name] = [dict(r) for r in rows]
+
+    ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"moked_backup_{ts}.json"
+    return backup_data, filename
+
+
+def save_backup_to_disk():
+    """
+    שומר גיבוי על הדיסק - משמש לגיבוי אוטומטי יומי.
+    שומר עד 7 גיבויים אחרונים ומוחק ישנים.
+    """
+    Path(BACKUP_DIR).mkdir(exist_ok=True)
+    backup_data, filename = create_backup()
+    filepath = os.path.join(BACKUP_DIR, filename)
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(backup_data, f, ensure_ascii=False, indent=2)
+
+    # ניקוי: השאר רק 7 הגיבויים האחרונים
+    all_backups = sorted(
+        [f for f in os.listdir(BACKUP_DIR) if f.startswith('moked_backup_') and f.endswith('.json')],
+        reverse=True,
+    )
+    for old in all_backups[7:]:
+        try:
+            os.remove(os.path.join(BACKUP_DIR, old))
+        except OSError:
+            pass
+
+    return filepath
+
+
+def get_available_backups():
+    """מחזיר רשימת גיבויים זמינים על הדיסק"""
+    if not os.path.exists(BACKUP_DIR):
+        return []
+    files = []
+    for f in os.listdir(BACKUP_DIR):
+        if f.startswith('moked_backup_') and f.endswith('.json'):
+            fp = os.path.join(BACKUP_DIR, f)
+            files.append({
+                'filename': f,
+                'filepath': fp,
+                'size_kb': round(os.path.getsize(fp) / 1024, 1),
+                'created': datetime.fromtimestamp(os.path.getmtime(fp)).strftime('%Y-%m-%d %H:%M:%S'),
+            })
+    return sorted(files, key=lambda x: x['filename'], reverse=True)
+
+
+def restore_from_backup(backup_data):
+    """
+    שחזור מלא מגיבוי - מוחק את כל הנתונים הקיימים ומחזיר את הגיבוי.
+    מחזיר: dict עם summary של מספר רשומות שהוחזרו מכל טבלה.
+    """
+    if 'tables' not in backup_data:
+        raise ValueError("קובץ גיבוי לא תקין - חסרות טבלאות")
+
+    summary = {}
+    with get_conn() as conn:
+        # מחיקת כל הנתונים הקיימים
+        for table_name in _get_all_table_names():
+            try:
+                conn.execute(f"DELETE FROM {table_name}")
+            except Exception:
+                pass
+
+        # שחזור
+        for table_name, rows in backup_data['tables'].items():
+            if not rows:
+                summary[table_name] = 0
+                continue
+            columns = list(rows[0].keys())
+            placeholders = ','.join(['?'] * len(columns))
+            col_names = ','.join(columns)
+            inserted = 0
+            for row in rows:
+                try:
+                    values = [row.get(c) for c in columns]
+                    conn.execute(
+                        f"INSERT INTO {table_name} ({col_names}) VALUES ({placeholders})",
+                        values,
+                    )
+                    inserted += 1
+                except Exception:
+                    pass
+            summary[table_name] = inserted
+
+        conn.commit()
+
+    return summary
+
+
+def auto_backup_if_needed():
+    """
+    מבצע גיבוי אוטומטי אם עברו יותר מ-24 שעות מהגיבוי האחרון.
+    יש לקרוא לו בכניסה למערכת.
+    """
+    from datetime import datetime as _dt
+    last_backup_str = get_setting('last_auto_backup', None)
+    should_backup = False
+
+    if not last_backup_str:
+        should_backup = True
+    else:
+        try:
+            last_dt = _dt.fromisoformat(last_backup_str)
+            if (_dt.now() - last_dt).total_seconds() > 24 * 60 * 60:
+                should_backup = True
+        except (ValueError, TypeError):
+            should_backup = True
+
+    if should_backup:
+        try:
+            save_backup_to_disk()
+            set_setting('last_auto_backup', _dt.now().isoformat())
+            return True
+        except Exception:
+            pass
+    return False
