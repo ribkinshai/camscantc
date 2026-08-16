@@ -325,29 +325,35 @@ def init_db():
                 (k, v),
             )
 
-        # ============ Seed משתמשי ברירת מחדל ============
-        cursor.execute("SELECT COUNT(*) as c FROM users")
-        if cursor.fetchone()['c'] == 0:
-            default_users = [
-                ('admin', 'מנהלת המוקד', 'manager'),
-                ('shai', 'שי כהן', 'manager'),
-                ('riki', 'ריקי', 'operator'),
-                ('sarit', 'שרית', 'operator'),
-                ('itai', 'איתי', 'operator'),
-                ('mai', 'מאי', 'operator'),
-                ('elinor', 'אלינור', 'operator'),
-                ('tali', 'טלי', 'operator'),
-                ('sima', 'סימה', 'operator'),
-                ('guy', 'גיא', 'operator'),
-                ('lev', 'לב', 'operator'),
-                ('shani', 'שני', 'operator'),
-                ('liron', 'לירון', 'operator'),
-                ('ronit', 'רונית', 'operator'),
-            ]
-            cursor.executemany(
-                "INSERT INTO users (username, name, role) VALUES (?, ?, ?)",
-                default_users,
-            )
+        # ============ Seed משתמשי ברירת מחדל + החלפה חד-פעמית ============
+        # מחיקת מוקדנים זמניים אם קיימים
+        cursor.execute("DELETE FROM users WHERE role = 'operator' AND username LIKE 'operator%'")
+
+        # הוספת משתמשים אמיתיים - קפוץ על כפולים בשקט
+        default_users = [
+            ('admin', 'מנהלת המוקד', 'manager'),
+            ('shai', 'שי כהן', 'manager'),
+            ('riki', 'ריקי', 'operator'),
+            ('sarit', 'שרית', 'operator'),
+            ('itai', 'איתי', 'operator'),
+            ('mai', 'מאי', 'operator'),
+            ('elinor', 'אלינור', 'operator'),
+            ('tali', 'טלי', 'operator'),
+            ('sima', 'סימה', 'operator'),
+            ('guy', 'גיא', 'operator'),
+            ('lev', 'לב', 'operator'),
+            ('shani', 'שני', 'operator'),
+            ('liron', 'לירון', 'operator'),
+            ('ronit', 'רונית', 'operator'),
+        ]
+        for username, name, role in default_users:
+            try:
+                cursor.execute(
+                    "INSERT INTO users (username, name, role) VALUES (?, ?, ?)",
+                    (username, name, role),
+                )
+            except sqlite3.IntegrityError:
+                pass  # כבר קיים - דלג
 
         # ============ Seed מצלמות אמיתיות אוטומטית ============
         cursor.execute("SELECT COUNT(*) as c FROM cameras")
