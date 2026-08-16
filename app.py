@@ -634,11 +634,6 @@ current_hour_key = sch.hour_key(current_hour)
 
 # ============ עמוד: סריקה שוטפת ============
 if page == "סריקה שוטפת":
-    # אינדיקטור מצב האוטו-רענון (עוזר לוודא שרץ)
-    if _HAS_AUTOREFRESH and _refresh_count > 0:
-        st.caption(f"🔄 מתעדכן אוטומטית · רענון #{_refresh_count} · פעם ב-15 שניות")
-    elif not _HAS_AUTOREFRESH:
-        st.caption("⚠️ streamlit-autorefresh לא הותקן - הדף לא מתעדכן אוטומטית")
 
     # ============ הגנה: מסך זה למוקדנים בלבד ============
     if st.session_state.get('user_role') == 'manager':
