@@ -329,17 +329,53 @@ def init_db():
         cursor.execute("SELECT COUNT(*) as c FROM users")
         if cursor.fetchone()['c'] == 0:
             default_users = [
-                ('admin', 'מיטל מנהלת המוקד', 'manager'),
-                ('shai', 'מנהל 2', 'manager'),
-                ('operator1', 'מוקדן 1', 'operator'),
-                ('operator2', 'מוקדן 2', 'operator'),
-                ('operator3', 'מוקדן 3', 'operator'),
-                ('operator4', 'מוקדן 4', 'operator'),
+                ('admin', 'מנהלת המוקד', 'manager'),
+                ('shai', 'שי כהן', 'manager'),
+                ('riki', 'ריקי', 'operator'),
+                ('sarit', 'שרית', 'operator'),
+                ('itai', 'איתי', 'operator'),
+                ('mai', 'מאי', 'operator'),
+                ('elinor', 'אלינור', 'operator'),
+                ('tali', 'טלי', 'operator'),
+                ('sima', 'סימה', 'operator'),
+                ('guy', 'גיא', 'operator'),
+                ('lev', 'לב', 'operator'),
+                ('shani', 'שני', 'operator'),
+                ('liron', 'לירון', 'operator'),
+                ('ronit', 'רונית', 'operator'),
             ]
             cursor.executemany(
                 "INSERT INTO users (username, name, role) VALUES (?, ?, ?)",
                 default_users,
             )
+
+        # ============ Seed מצלמות אמיתיות אוטומטית ============
+        cursor.execute("SELECT COUNT(*) as c FROM cameras")
+        if cursor.fetchone()['c'] == 0:
+            try:
+                import real_cameras
+                camera_data = real_cameras.get_camera_data_for_import()
+                for item in camera_data:
+                    if len(item) == 3:
+                        name, area, scan_policy = item
+                    else:
+                        name, area = item
+                        scan_policy = ''
+                    name = (name or '').strip()
+                    if not name:
+                        continue
+                    try:
+                        cursor.execute(
+                            "INSERT INTO cameras (name, is_central, area, scan_policy) "
+                            "VALUES (?, 0, ?, ?)",
+                            (name, area or '', scan_policy or ''),
+                        )
+                    except sqlite3.IntegrityError:
+                        pass
+            except ImportError:
+                pass  # real_cameras.py לא זמין - לא נטען
+
+        conn.commit()
 # ============ Seed נקודות חמות ברירת מחדל ============
         cursor.execute("SELECT COUNT(*) as c FROM hotspots")
         if cursor.fetchone()['c'] == 0:
@@ -1129,3 +1165,35 @@ def reset_all_data():
         conn.execute("DELETE FROM faults")
         conn.execute("DELETE FROM cameras")
         conn.commit()
+def refresh_operators():
+    """מסיר את מוקדן 1-4 הישנים ומכניס את השמות האמיתיים. מריצים פעם אחת."""
+    with get_conn() as conn:
+        cursor = conn.cursor()
+        # מחיקת המוקדנים הזמניים
+        cursor.execute("DELETE FROM users WHERE role = 'operator' AND username LIKE 'operator%'")
+
+        # שמות אמיתיים
+        real_operators = [
+            ('riki', 'ריקי'),
+            ('sarit', 'שרית'),
+            ('itai', 'איתי'),
+            ('mai', 'מאי'),
+            ('elinor', 'אלינור'),
+            ('tali', 'טלי'),
+            ('sima', 'סימה'),
+            ('guy', 'גיא'),
+            ('lev', 'לב'),
+            ('shani', 'שני'),
+            ('liron', 'לירון'),
+            ('ronit', 'רונית'),
+        ]
+        for username, name in real_operators:
+            try:
+                cursor.execute(
+                    "INSERT INTO users (username, name, role) VALUES (?, ?, 'operator')",
+                    (username, name),
+                )
+            except sqlite3.IntegrityError:
+                pass
+        conn.commit()
+        return len(real_operators)
